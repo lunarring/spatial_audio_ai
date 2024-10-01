@@ -44,6 +44,30 @@ class SoundSpatializer:
         self.apply_delays = True
         self.attenuation_scaler = 1.0
 
+    def load_preset(self, preset_name: str):
+        """
+        Load predefined speaker positions based on the given preset name.
+
+        :param preset_name: Name of the preset to load. Options are 'headphones' and 'cork_room'.
+        """
+        if preset_name == 'headphones':
+            # Headphones preset: speakers are at ear distance centered around the listener
+            speaker_positions = [(0.1, 0.0), (-0.1, 0.0)]
+        elif preset_name == 'cork_room':
+            # Cork room preset: predefined speaker positions in a cork room
+            speaker_positions = [
+                (4.75, -3.85), (4.75, -1.9), (4.75, 1.9), (4.75, 3.85),
+                (2.35, 3.85), (-2.35, 3.85), (-4.75, 3.85), (-4.75, 1.9),
+                (-4.75, -1.9), (-4.75, -3.85), (-2.35, -3.85), (2.35, -3.85)
+            ]
+        else:
+            raise ValueError(f"Unknown preset name: {preset_name}")
+
+        self.define_speakers(speaker_positions)
+        if self.verbose:
+            print(f"Loaded preset '{preset_name}' with {len(speaker_positions)} speaker positions.")
+
+
     def define_speakers(self, speaker_positions: List[Tuple[float, float]]):
         """
         Define the positions of the speakers in 2D space and compute spatial parameters for all samples.
@@ -256,47 +280,27 @@ if __name__ == "__main__":
         sample_rate=44100,
         listener_position=(0.0, 0.0)   # Listener at the origin in meters
     )
-
-    spatializer.apply_delays = False
-    # # # Define stereo speaker positions (left and right) in meters
-    # stereo_speakers = [(-0.1, 0.0), (0.1, 0.0)]  # Left and Right speakers on the x-axis
-    # spatializer.define_speakers(stereo_speakers)
-
-    # Define 12 speaker positions.
-    # x: 9.5m y: 7.7m ->x/2 4.75 y/2 3.85
-
-    num_speakers = 12
-    radius = 6.0  # meters
-    cork_speakers = []
-    cork_speakers.append([4.75, -3.85])
-    cork_speakers.append([4.75, -1.9])
-    cork_speakers.append([4.75, +1.9])
-    cork_speakers.append([4.75, +3.85])
-    cork_speakers.append([2.35, +3.85])
-    cork_speakers.append([-2.35, +3.85])
-    cork_speakers.append([-4.75, +3.85])
-    cork_speakers.append([-4.75, +1.9])
-    cork_speakers.append([-4.75, -1.9])
-    cork_speakers.append([-4.75, -3.85])
-    cork_speakers.append([-2.35, -3.85])
-    cork_speakers.append([+2.35, -3.85])
-
-    spatializer.define_speakers(cork_speakers)
+    spatializer.load_preset("cork_room")
 
     # Generate a 500 Hz sine wave for 0.5 seconds
-    frequency = 500.0  # Hz
-    duration = 1  # seconds
+    frequency = 600.0  # Hz
+    duration = 0.1  # seconds
+    pause = 0.1
     sample_rate = 44100
-    num_iterations = 12  # Number of iterations for shifting the sound
-
+    num_iterations = 100  # Number of iterations for shifting the sound
     sound = generate_sine_wave(frequency=frequency, duration=duration, sample_rate=sample_rate)
-    list_onsets = np.arange(num_iterations) * (duration + 0.5)
+    list_onsets = np.arange(num_iterations) * (duration + pause)
+    radius = 4.0  # meters
+    angular_offset = 2 * np.pi / num_iterations  # evenly spaced around the circle
+    phase_offset = -0.7 # phase offset in radians
+
     for i in range(num_iterations):
-        angle = 2 * np.pi * i / num_iterations
-        position = cork_speakers[i] # Position in a circle around the listener
+        angle = i * angular_offset + phase_offset
+        position = (radius * np.cos(angle), radius * np.sin(angle))
         onset = list_onsets[i]
         spatializer.add_audio_sample(audio_buffer=sound, position=position, onset=onset)
-        # print(f"Added AudioSample at position: {position:3f} with onset {onset:.2f} seconds")
+        print(f"Added AudioSample at position: {position[0]:.3f} {position[1]:.3f} with onset {onset:.2f} seconds")
+
 
     # Perform spatialization and play the sound
     spatializer.spatialize()
@@ -304,3 +308,38 @@ if __name__ == "__main__":
     audio_handler.save_sound_multichannel(spatializer.audio_output, "latest.npy")
 
     # spatializer.play_audio()
+    
+    #%% random forest. assumes you have loaded in forest_sounds
+    import os
+    import numpy as np
+    import soundfile as sf
+
+    forest_sounds_dir = '/home/lugo/audio/export/forest'
+    forest_sounds = []
+
+    for filename in os.listdir(forest_sounds_dir):
+        if filename.endswith('.wav'):
+            filepath = os.path.join(forest_sounds_dir, filename)
+            sound, samplerate = sf.read(filepath)
+            forest_sounds.append(sound)
+    #%%
+    import random
+    spatializer = SoundSpatializer(
+        sample_rate=44100,
+        listener_position=(0.0, 0.0)   # Listener at the origin in meters
+    )
+    spatializer.load_preset("cork_room")
+
+    K = 50  # Number of iterations for adding forest sounds
+    max_duration = 20.0  # Maximum duration in seconds
+
+    for _ in range(K):
+        sound = random.choice(forest_sounds)
+        onset = random.uniform(0, max_duration)
+        position = (random.uniform(-5, 5), random.uniform(-5, 5))
+        spatializer.add_audio_sample(audio_buffer=sound, position=position, onset=onset)
+        print(f"Added ForestSound at position: {position[0]:.3f} {position[1]:.3f} with onset {onset:.2f} seconds")
+        
+    spatializer.spatialize()
+    # audio_handler.set_output_dir('/home/lugo/audio/export')
+    audio_handler.save_sound_multichannel(spatializer.audio_output, "latest.npy")

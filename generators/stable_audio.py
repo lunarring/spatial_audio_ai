@@ -275,3 +275,45 @@ if __name__ == "__main__":
             
     audio_handler.save_sound_multichannel(list_sounds, "latest.npy", apply_rebalancing=True)
     
+    #%%
+    list_forest = []
+    list_prompts = []
+    gpt = lt.GPT4()
+    for i in range(100):
+        audio_diffusion.set_random_seed()
+        audio_diffusion.set_audio_end_in_s(3)
+        audio_diffusion.set_num_inference_steps(100)
+        prompt = gpt.generate("describe a sound that you could encounter in the forest! be creative and bold and keep your description very brief, directly start. just describe ONE SINGLE sound and keep your description to three to five words!")
+        prompt_embeds = audio_diffusion.get_embedding(prompt)
+        output = audio_diffusion.generate_sound(prompt_embeds)
+        output = audio_handler.apply_fade_in_out(output)
+        list_forest.append(output)
+        list_prompts.append(prompt)
+
+    audio_handler.set_output_dir('/home/lugo/audio/export/forest')
+    for i, sound in enumerate(list_forest):
+        prompt = list_prompts[i]
+        filename = prompt.replace(" ", "_")
+        filename = filename.replace("'", "")
+        filename = filename.replace('"', "")
+        filename = filename.replace('.', "")
+        audio_handler.save_sound(sound, filename+".wav")
+
+
+    import os
+    import numpy as np
+    import soundfile as sf
+
+    forest_sounds_dir = '/home/lugo/audio/export/forest'
+    forest_sounds = []
+
+    for filename in os.listdir(forest_sounds_dir):
+        if filename.endswith('.wav'):
+            filepath = os.path.join(forest_sounds_dir, filename)
+            sound, samplerate = sf.read(filepath)
+            forest_sounds.append(sound)
+
+
+    
+
+
