@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Sep 23 17:54:49 2024
-
-@author: lugo
-"""
 
 import torch
 import soundfile as sf
@@ -17,6 +12,7 @@ import lunar_tools as lt
 import torch
 import os
 from datetime import datetime
+sys.path.append("../spatial")
 from tools import AudioHandler
 
 
@@ -127,6 +123,7 @@ if __name__ == "__main__":
     # %% generate one simple sound and save 
     audio_diffusion.set_random_seed()
     audio_diffusion.set_audio_end_in_s(5)
+    audio_diffusion.set_num_inference_steps(5)
     prompt = "hammer knocking wood"
     prompt_embeds = audio_diffusion.get_embedding(prompt)
     output = audio_diffusion.generate_sound(prompt_embeds)
@@ -262,7 +259,7 @@ if __name__ == "__main__":
     
     #%% resave the sounds
     audio_handler = AudioHandler()
-    list_sounds_test = []
+    list_sounds = []
     for i in range(13):
         sound = output.copy()
         
@@ -274,7 +271,7 @@ if __name__ == "__main__":
         #     sound*=2
         #     # pass
         #     # list_sounds_test.append(0*sound)
-        list_sounds_test.append(sound)
+        list_sounds.append(sound)
             
-    audio_handler.save_sound_multichannel(list_sounds_test, "latest.npy", apply_rebalancing=True)
+    audio_handler.save_sound_multichannel(list_sounds, "latest.npy", apply_rebalancing=True)
     

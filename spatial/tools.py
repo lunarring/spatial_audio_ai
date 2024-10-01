@@ -25,21 +25,21 @@ class AudioHandler():
 
     def save_sound_multichannel(self, list_sounds, filename, apply_rebalancing=True):
         if isinstance(list_sounds, list):
-            output = np.array(list_sounds).T
+            output = np.array(list_sounds)
         else:
             output = list_sounds
-        if output.shape[1] == 12:
-            output = np.append(output, np.expand_dims(np.mean(output, axis=1), axis=1), axis=1)
-        elif output.shape[1] == 13:
+        if output.shape[0] == 12:
+            output = np.append(output, np.expand_dims(np.mean(output, axis=0), axis=0), axis=0)
+        elif output.shape[0] == 13:
             pass
         else:
             raise ValueError(f"Unexpected number of channels in the output array: {output.shape[1]}")
+            
         output = np.clip(output, -1, 1)
-        
         if apply_rebalancing:
-            output * self.channel_scalars[:, np.newaxis].T
+            output * np.expand_dims(self.channel_scalars, axis=1)
         
-        np.save(f"{self.output_dir}/{filename}", output.T)
+        np.save(f"{self.output_dir}/{filename}", output)
 
     def apply_fade_in_out(self, sound, ramp_duration=0.4):
         ramp_samples = int(ramp_duration * self.sampling_rate)

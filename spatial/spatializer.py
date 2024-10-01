@@ -215,7 +215,8 @@ class SoundSpatializer:
                             f"Attenuation={attenuation:.4f}, Delay={delay_samples} samples, Onset={onset_samples} samples")
 
         # Combine speaker buffers into a stereo (or multi-channel) audio output
-        self.audio_output = np.stack(speaker_buffers, axis=-1)
+        self.audio_output = np.stack(speaker_buffers, axis=-1).T
+        
         if self.verbose:
             print("Spatialization complete.")
 
