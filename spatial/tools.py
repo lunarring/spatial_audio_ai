@@ -15,6 +15,8 @@ class AudioHandler():
         self.set_output_dir("/home/lugo/audio/export")
         self.channel_scalars = np.array([1.0, 0.85, 0.8, 1.0, 0.8, 0.75, 1.0, 0.9, 0.9, 1.0, 0.85, 0.65, 3.0], dtype=np.float32)
         self.channel_scalars *= 0.5
+        self.subwoofer_last_channel_auto_mode = True
+        self.nmb_channels = len(self.channel_scalars)
 
     def set_output_dir(self, output_dir):
         self.output_dir = output_dir
@@ -28,9 +30,10 @@ class AudioHandler():
             output = np.array(list_sounds)
         else:
             output = list_sounds
-        if output.shape[0] == 12:
+        if output.shape[0] == self.nmb_channels-1 and self.subwoofer_last_channel_auto_mode:
+            # in this case subewoofer was not present in incoming signals and we automatically generate it!
             output = np.append(output, np.expand_dims(np.mean(output, axis=0), axis=0), axis=0)
-        elif output.shape[0] == 13:
+        elif output.shape[0] == self.nmb_channels:
             pass
         else:
             raise ValueError(f"Unexpected number of channels in the output array: {output.shape[1]}")
@@ -64,10 +67,10 @@ class AudioHandler():
         white_noise = np.random.normal(0, 1, nmb_samples_single).astype(np.float32)
     
         # Create an empty array for the multichannel sound
-        multichannel_noise = np.zeros((12, 12 * nmb_samples_single + nmb_samples_delay), dtype=np.float32)
+        multichannel_noise = np.zeros((self.nmb_channels, self.nmb_channels * nmb_samples_single + nmb_samples_delay), dtype=np.float32)
     
         # Stack the white noise diagonally and multiply by the channel scalars
-        for i in range(12):
+        for i in range(self.nmb_channels):
             start_index = i * nmb_samples_single + nmb_samples_delay
             end_index = start_index + nmb_samples_single
             multichannel_noise[i, start_index:end_index] = white_noise * self.channel_scalars[i]
