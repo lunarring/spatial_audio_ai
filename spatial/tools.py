@@ -13,7 +13,8 @@ class AudioHandler():
     def __init__(self, sampling_rate=44100):
         self.sampling_rate = sampling_rate
         self.set_output_dir("/home/lugo/audio/export")
-        self.channel_scalars = np.array([1.0, 0.85, 0.8, 1.0, 0.8, 0.75, 1.0, 0.9, 0.9, 1.0, 0.85, 0.65, 3.0], dtype=np.float32)
+        # self.channel_scalars_old = np.array([1.0, 0.85, 0.8, 1.0, 0.8, 0.75, 1.0, 0.9, 0.9, 1.0, 0.85, 0.65, 3.0], dtype=np.float32)
+        self.channel_scalars = np.array([1.0, 0.85, 0.8, 1.0, 0.8, 0.75, 1.3, 1.0, 1.2, 1.5, 1.3, 0.7, 3.0], dtype=np.float32)
         self.channel_scalars *= 0.5
         self.subwoofer_last_channel_auto_mode = True
         self.nmb_channels = len(self.channel_scalars)
