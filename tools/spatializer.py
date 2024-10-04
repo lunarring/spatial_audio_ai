@@ -2,7 +2,6 @@ import numpy as np
 import sounddevice as sd
 from dataclasses import dataclass
 from typing import List, Tuple
-from tools import AudioHandler
 sd.default.blocksize = 1024
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -11,6 +10,7 @@ import time
 from numpysocket import NumpySocket
 import os
 import random
+from playback_stream import SoundNetworkStreamer
 
 BLOCKSIZE = 1024
 CHUNKSIZE = BLOCKSIZE*4
@@ -41,7 +41,6 @@ class SoundObjectBase(ABC):
         pass
 
 class SO_Playback(SoundObjectBase):
-
     def __init__(
         self, 
         sound: np.ndarray, 
@@ -52,6 +51,7 @@ class SO_Playback(SoundObjectBase):
         self.position = position
 
     def query(self, tick: int) -> SoundMessage:
+        self.update_position()
         if self.first_tick is None:
             self.first_tick = tick
         start = (tick - self.first_tick) * CHUNKSIZE
@@ -59,36 +59,57 @@ class SO_Playback(SoundObjectBase):
         if len(sound) == 0:
             raise SoundObjectTerminatedException
         sound = np.pad(sound, (0, CHUNKSIZE - len(sound)), 'constant')
-        self.play_with_position()
         
         return SoundMessage(sound=sound, position=self.position)
     
-    def play_with_position(self):
-        period = 2 * np.pi * random.uniform(1, 10)  # Randomized period for one full rotation
-        random_radius = random.uniform(1, 10)
-        x = random_radius * np.sin(time.time() * (2 * np.pi / period))
-        y = random_radius * np.cos(time.time() * (2 * np.pi / period))
-        self.position += np.array([x, y])
-    
+    def update_position(self):
+        pass
+
     def set_position(self, new_position: np.ndarray):
         self.position = new_position
 
+
+class SO_PlaybackCircularMove(SO_Playback):
+    def __init__(self, sound: np.ndarray, position: np.ndarray | None = np.zeros(2, dtype=float), radius: float = 1.0, speed: float = 1.0):
+        super().__init__(sound, position)
+        self.radius = radius
+        self.speed = speed
+        self.start_time = time.time()
+
+    def update_position(self):
+        """
+        Update the position of the sound object to move in a circular path.
+        The position is updated based on the elapsed time since the start.
+        """
+        elapsed_time = time.time() - self.start_time
+        angle = self.speed * elapsed_time
+        x = self.radius * np.cos(angle)
+        y = self.radius * np.sin(angle)
+        self.set_position(np.array([x, y]))
+
+
+
 class Spatializer:
     def __init__(self,
-                 subwoofer_last_channel_auto_mode = True,
+                 subwoofer_last_channel_auto_mode=True,
+                 process_function=None
     ):
         self.speaker_positions = np.asarray([
             (4.75, -3.85), (4.75, -1.9), (4.75, 1.9), (4.75, 3.85),
             (2.35, 3.85), (-2.35, 3.85), (-4.75, 3.85), (-4.75, 1.9),
             (-4.75, -1.9), (-4.75, -3.85), (-2.35, -3.85), (2.35, -3.85)
         ])
-        # self.channel_base_factors = 0.5 * np.array([1.0, 0.85, 0.8, 1.0, 0.8, 0.75, 1.3, 1.0, 1.2, 1.5, 1.3, 0.7, 3.0], dtype=np.float32)
         self.subwoofer_last_channel_auto_mode = subwoofer_last_channel_auto_mode
         self.attenuation_scaler = 1.0
-        self.process = self.process_simple
-        # self.process = self.process_only1
+        self.process = process_function if process_function is not None else self.process_simple
 
     def process_simple(self, sm: SoundMessage):
+        """
+        Process a SoundMessage by calculating the attenuation for each speaker
+        based on the distance from the sound's position to each speaker position.
+        The sound is then attenuated accordingly and optionally processed for
+        subwoofer output.
+        """
         distances = np.linalg.norm((self.speaker_positions - sm.position), axis=1)
         attenuation = 1 / (1 + self.attenuation_scaler * distances)
         buffer = np.expand_dims(attenuation, 1) * sm.sound
@@ -98,19 +119,22 @@ class Spatializer:
         return buffer
     
     def process_only1(self, sm: SoundMessage):
+        def process_only1(self, sm: SoundMessage):
+            """
+            Process a SoundMessage by selecting only the speaker with the highest
+            attenuation to play the sound. 
+            """
         distances = np.linalg.norm((self.speaker_positions - sm.position), axis=1)
         attenuation = 1 / (1 + self.attenuation_scaler * distances)
         idx_survive = np.argmax(attenuation)
         attenuation_flat = np.zeros_like(attenuation)
         attenuation_flat[idx_survive] = 1
         attenuation = attenuation_flat
-
         buffer = np.expand_dims(attenuation, 1) * sm.sound
         
         if self.subwoofer_last_channel_auto_mode:
             buffer = np.append(buffer, np.expand_dims(np.mean(buffer, axis=0), axis=0), axis=0)
         return buffer
-    
 
 
 class Scene:
@@ -153,43 +177,16 @@ class Scene:
             
             time.sleep(self.sleep_time)
         
-class SoundNetworkStreamer:
-    def __init__(self, host: str = "10.40.49.21", port: int = 9999):
-        self.host = host
-        self.port = port
-        self.socket = NumpySocket()
-        self.__enter__()
-
-    def __enter__(self):
-        self.socket.connect((self.host, self.port))
-        return self
-
-    def close(self):
-        self.socket.close()
-
-    def send(self, data: np.ndarray):
-        if data.ndim == 2:
-            if data.shape[1] % BLOCKSIZE == 0:
-                # print(data.shape)
-                self.socket.sendall(data)
-            else:
-                print(f"Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
-        else:
-            print("Data must be a 2-dimensional numpy array")
                 
 if __name__ == "__main__":
     # simple placement of two objects
     if False:
-        # def generate_sine_tone(frequency, duration, sampling_rate=44100):
-        #     t = np.linspace(0, duration, int(sampling_rate * duration), endpoint=False)
-        #     sine_wave = np.sin(2 * np.pi * frequency * t)
-        #     return sine_wave
+
         
         # sound_a = generate_sine_tone(400, 6)
         # sound_b = generate_sine_tone(600, 6)
     
         # so_a = SO_Playback(sf.read("/home/lugo/Downloads/song.wav")[0][:,0])
-        
         
         sound_a = sf.read("/home/lugo/audio/export/talking1.wav")[0]
         sound_b = sf.read("/home/lugo/audio/export/talking2.wav")[0]
@@ -218,43 +215,8 @@ if __name__ == "__main__":
             print(f"sent chunk {j}")
             time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
         
-#%%
+    
 
-    import numpy as np
-    from scipy import signal
-    from scipy.io.wavfile import write
-    
-    def apply_reverb(waveform, sr, reverb_decay=0.5):
-        """
-        Apply a simple reverb effect by convolving the waveform with a generated impulse response.
-        
-        Parameters:
-        - waveform: numpy array, the input sound waveform.
-        - sr: int, the sample rate of the waveform.
-        - reverb_decay: float, how fast the reverb decays (between 0 and 1, where 0 is no reverb).
-        
-        Returns:
-        - reverb_waveform: numpy array, the waveform with reverb applied.
-        """
-        # Create a simple impulse response to simulate reverb.
-        # A more complex impulse response would provide a more realistic effect.
-        ir_length = int(sr * 0.3)  # 0.3 second reverb tail
-        impulse_response = np.zeros(ir_length)
-        impulse_response[0] = 1.0  # Direct sound
-        for i in range(1, ir_length):
-            impulse_response[i] = reverb_decay ** i  # Simulated reverb decay
-    
-        # Normalize the impulse response to avoid clipping
-        impulse_response /= np.max(np.abs(impulse_response))
-    
-        # Convolve the input waveform with the impulse response to create the reverb effect
-        reverb_waveform = signal.convolve(waveform, impulse_response, mode='full')
-    
-        # Normalize the output to avoid clipping
-        reverb_waveform /= np.max(np.abs(reverb_waveform))
-    
-        # Return the reverb-processed waveform
-        return reverb_waveform
 
     # pool based sound scape playback
     if True:
@@ -268,7 +230,7 @@ if __name__ == "__main__":
         wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
         sound = sf.read(f"{dir_scan}{wav_files[0]}")[0]
         
-        sound = apply_reverb(sound, SAMPLING_RATE, reverb_decay=0.3)
+        # sound = apply_reverb(sound, SAMPLING_RATE, reverb_decay=0.3)
     
         so = SO_Playback(sound)
     
@@ -287,16 +249,9 @@ if __name__ == "__main__":
                 position = np.random.uniform(-box_size, box_size, size=2)
                 scene.register(SO_Playback(sound, position=position))
                 print(f"Injected sound: {random_file} at position: {position}")
-                
             
             chunk = np.clip(chunk, -1, 1)
             sound_streamer.send(chunk)
-            
-            # if j == 5:
-            #     scene.register(SO_Playback(sound_a, position=np.array([-3., -3.1])))
-            # if j == 8:
-            #     scene.register(SO_Playback(sound_b, position=np.array([3., 3.])))
-            # print(f"sent chunk {j}")
             time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
         
     

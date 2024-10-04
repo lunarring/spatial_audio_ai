@@ -10,7 +10,7 @@ import lunar_tools as lt
 import torch
 import os
 from datetime import datetime
-sys.path.append("../spatial")
+sys.path.append("../tools")
 from tools import apply_fade_in_out, save_sound, clean_prompt_for_filename
 import random
 
@@ -124,7 +124,7 @@ class SoundPoolGenerator:
 
 # Examples
 # %% just generate a short sound and save it. Change line below to if __name__ == "__main__" to run it. 
-if __name__ == "__main__XXX":
+if __name__ == "__main__":
     
     audio_diffusion = AudioDiffusion(num_inference_steps=100)
     audio_diffusion.set_random_seed()
@@ -155,7 +155,7 @@ if __name__ == "__main__XXX":
         
     
 # %% Generate a sound pool given many prompts. Saves wavs to disk. Change line below to if __name__ == "__main__" to run it. This example requires you have the repo rtd_comfy
-if __name__ == "__main__":
+if __name__ == "__main__XXX":
     audio_diffusion = AudioDiffusion(num_inference_steps=100)
     spg = SoundPoolGenerator(audio_diffusion)
     spg.set_min_duration_sound(3)
