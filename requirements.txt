@@ -1,0 +1,8 @@
+git+https://github.com/lunarring/lunar_tools
+diffusers
+numpy
+numpysocket
+scipy
+sounddevice
+soundfile
+torch
