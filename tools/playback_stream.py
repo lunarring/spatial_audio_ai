@@ -23,29 +23,70 @@ SAMPLING_RATE = 44100
 
 sd.default.blocksize = BLOCKSIZE
         
+import numpy as np
+from numpysocket import NumpySocket
+import threading
+
+# Define BLOCKSIZE as per your requirements
+BLOCKSIZE = 1024  # Example value; adjust as needed
+
 class SoundNetworkStreamer:
-    def __init__(self, host: str = "10.40.49.21", port: int = 9999):
+    def __init__(self, host: str = "10.40.49.47", port: int = 9999):
         self.host = host
         self.port = port
         self.socket = NumpySocket()
+        self.socket_connected = False
+        self.lock = threading.Lock()  # To ensure thread safety if needed
         self.__enter__()
 
     def __enter__(self):
         self.socket.connect((self.host, self.port))
+        self.socket_connected = True
+        print(f"Connected to server at {self.host}:{self.port}")
         return self
 
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
     def close(self):
-        self.socket.close()
+        if self.socket_connected:
+            self.socket.close()
+            self.socket_connected = False
+            print("Connection closed.")
 
     def send(self, data: np.ndarray):
         if data.ndim == 2:
             if data.shape[1] % BLOCKSIZE == 0:
-                # print(data.shape)
-                self.socket.sendall(data)
+                try:
+                    self.socket.sendall(data)
+                    # print(f"Sent data with shape {data.shape} to the server.")
+                except Exception as e:
+                    print(f"Failed to send data: {e}")
             else:
                 print(f"Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
         else:
             print("Data must be a 2-dimensional numpy array")
+
+    def receive(self) -> np.ndarray:
+        try:
+            response = self.socket.recv()
+            if response is not None:
+                print(f"Received data from server: {response}")
+            else:
+                print("No data received. The connection might be closed.")
+            return response
+        except Exception as e:
+            print(f"Failed to receive data: {e}")
+            return None
+
+    def send_and_receive(self, data: np.ndarray) -> np.ndarray:
+        """
+        Sends data to the server and waits to receive a response.
+        """
+        with self.lock:
+            self.send(data)
+            print("waiting to receive...")
+            return self.receive()
 
 
 class BlackHoleStereoRelayer:
@@ -265,3 +306,20 @@ if __name__ == "__main__":
 
     # Start the relayer
     relayer.start()
+
+if __name__ == "__main__x":
+# Instantiate the SoundNetworkStreamer
+    sound_streamer = SoundNetworkStreamer()
+
+    # Generate a uniform noise array with 13 channels
+    nmb_blocks = 200  # Duration in seconds
+    num_channels = 13
+    noise_array = np.random.uniform(low=-1.0, high=1.0, size=(int(BLOCKSIZE*nmb_blocks), num_channels))
+    noise_array = np.clip(noise_array, -1, 1)
+    noise_array *= 0.3
+    # Send the noise array to the SoundNetworkStreamer
+    x = sound_streamer.send_and_receive(noise_array.T)
+    print(x)
+
+    # Close the streamer after sending
+    # sound_streamer.close()
