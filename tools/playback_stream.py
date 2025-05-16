@@ -124,7 +124,7 @@ class BlackHoleStereoRelayer:
                  device_name="BlackHole 64ch",
                  max_queue_size=1000,
                  stream_volume=0.1,
-                 mapping_scheme='grouped'):
+                 mapping_scheme='alternating'):
         """
         Initializes the BlackHoleStereoRelayer.
 
@@ -135,7 +135,7 @@ class BlackHoleStereoRelayer:
         - device_name (str): Name of the BlackHole device.
         - max_queue_size (int): Maximum number of chunks to store in the deque.
         - stream_volume (float): Volume scaling factor for the audio stream.
-        - mapping_scheme (str): Channel mapping scheme ('grouped' or 'alternating').
+        - mapping_scheme (str): Playback mapping scheme ('stereo' or 'alternating').
         """
         # Configure logging
         logging.basicConfig(level=logging.WARNING,
@@ -150,8 +150,8 @@ class BlackHoleStereoRelayer:
         self.mapping_scheme = mapping_scheme.lower()
 
         # Validate mapping scheme
-        if self.mapping_scheme not in ['grouped', 'alternating']:
-            raise ValueError("Invalid mapping_scheme. Choose 'grouped' or 'alternating'.")
+        if self.mapping_scheme not in ['stereo', 'alternating']:
+            raise ValueError("Invalid mapping_scheme. Choose 'stereo' or 'alternating'.")
 
         # Initialize the deque to store audio chunks
         self.audio_deque = deque(maxlen=self.max_queue_size)
@@ -221,7 +221,7 @@ class BlackHoleStereoRelayer:
 
     def _map_channels(self, indata):
         """
-        Maps the input stereo data to 12 output channels based on the selected scheme
+        Maps the input stereo data to 13 output channels based on the selected scheme
         and adds a 13th channel as the sum of left and right.
 
         Parameters:
@@ -236,14 +236,15 @@ class BlackHoleStereoRelayer:
         left = indata[:, 0]  # Left channel
         right = indata[:, 1]  # Right channel
 
-        if self.mapping_scheme == 'grouped':
-            mapped = np.zeros((indata.shape[0], 13), dtype=np.float32)
+        mapped = np.zeros((indata.shape[0], 13), dtype=np.float32)
+        if self.mapping_scheme == 'stereo':
+            # Stereo (grouped) mapping: first 6 channels are left, next 6 channels are right
             for i in range(6):
                 mapped[:, i] = left
             for i in range(6, 12):
                 mapped[:, i] = right
         elif self.mapping_scheme == 'alternating':
-            mapped = np.zeros((indata.shape[0], 13), dtype=np.float32)
+            # Alternating mapping: even channels left, odd channels right
             for i in range(12):
                 if i % 2 == 0:
                     mapped[:, i] = left
@@ -258,16 +259,16 @@ class BlackHoleStereoRelayer:
 
     def handle_key_press(self, key: str):
         """
-        Handles key press events. When the 'T' key is pressed, toggles the playback mode 
-        between 'alternating' and 'grouped' (stereo) modes.
+        Handles key press events. When the 't' key is pressed, toggles the playback mode 
+        between 'alternating' and 'stereo' modes.
         
         Parameters:
         - key (str): The key that was pressed.
         """
-        if key.upper() == 'T':
+        if key.lower() == 't':
             previous_mode = self.mapping_scheme
             if self.mapping_scheme == 'alternating':
-                self.mapping_scheme = 'grouped'
+                self.mapping_scheme = 'stereo'
             else:
                 self.mapping_scheme = 'alternating'
             print(f"Playback mode toggled from {previous_mode} to {self.mapping_scheme}")
