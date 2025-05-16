@@ -3,38 +3,58 @@ import sounddevice as sd
 from dataclasses import dataclass
 from typing import List, Tuple
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import soundfile as sf
 import time
 from numpysocket import NumpySocket
 import os
 import random
-import sounddevice as sd
-import numpy as np
 from collections import deque
 import threading
-import time
 import logging
 
-
 BLOCKSIZE = 1024
-CHUNKSIZE = BLOCKSIZE*4
+CHUNKSIZE = BLOCKSIZE * 4
 SAMPLING_RATE = 44100
 
 sd.default.blocksize = BLOCKSIZE
-        
-import numpy as np
-from numpysocket import NumpySocket
-import threading
 
-# Define BLOCKSIZE as per your requirements
-BLOCKSIZE = 1024  # Example value; adjust as needed
+# Dummy simulated socket class for simulation mode
+class SimulatedSocket:
+    def __init__(self):
+        self.connected = False
+        self.last_data = None
+
+    def connect(self, addr):
+        self.connected = True
+        self.addr = addr
+        print(f"Simulated socket connected to {addr}")
+
+    def sendall(self, data):
+        if not self.connected:
+            raise Exception("Simulated socket not connected")
+        self.last_data = data
+        print("Simulated socket sent data")
+
+    def recv(self):
+        if not self.connected:
+            raise Exception("Simulated socket not connected")
+        print("Simulated socket returning echoed data")
+        return self.last_data
+
+    def close(self):
+        self.connected = False
+        print("Simulated socket closed.")
+
 
 class SoundNetworkStreamer:
-    def __init__(self, host: str = "10.40.49.47", port: int = 9999):
+    def __init__(self, host: str = "10.40.49.47", port: int = 9999, simulate: bool = False):
         self.host = host
         self.port = port
-        self.socket = NumpySocket()
+        self.simulate = simulate
+        if self.simulate:
+            self.socket = SimulatedSocket()
+        else:
+            self.socket = NumpySocket()
         self.socket_connected = False
         self.lock = threading.Lock()  # To ensure thread safety if needed
         self.__enter__()
@@ -42,7 +62,10 @@ class SoundNetworkStreamer:
     def __enter__(self):
         self.socket.connect((self.host, self.port))
         self.socket_connected = True
-        print(f"Connected to server at {self.host}:{self.port}")
+        if self.simulate:
+            print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
+        else:
+            print(f"Connected to server at {self.host}:{self.port}")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -97,7 +120,7 @@ class BlackHoleStereoRelayer:
     def __init__(self,
                  sample_rate=44100,
                  channels=2,
-                 chunk_size=1024*10,
+                 chunk_size=1024 * 10,
                  device_name="BlackHole 64ch",
                  max_queue_size=1000,
                  stream_volume=0.1,
@@ -133,7 +156,7 @@ class BlackHoleStereoRelayer:
         # Initialize the deque to store audio chunks
         self.audio_deque = deque(maxlen=self.max_queue_size)
 
-        # Initialize the SoundNetworkStreamer
+        # Initialize the SoundNetworkStreamer (using real connection)
         self.sound_streamer = SoundNetworkStreamer()
 
         # Thread control
@@ -192,7 +215,7 @@ class BlackHoleStereoRelayer:
                                 callback=self.audio_callback):
                 logging.info("Recording started. Press Ctrl+C to stop.")
                 while not self._stop_event.is_set():
-                    time.sleep(0.1)  # Short sleep to reduce CPU usage
+                    time.sleep(0.1)
         except Exception as e:
             logging.error(f"An error occurred in the recording thread: {e}")
 
@@ -214,16 +237,12 @@ class BlackHoleStereoRelayer:
         right = indata[:, 1]  # Right channel
 
         if self.mapping_scheme == 'grouped':
-            # Grouped Scheme: Channels 1-6 map to left, 7-12 map to right
             mapped = np.zeros((indata.shape[0], 13), dtype=np.float32)
-            # Map left channel to channels 1-6
             for i in range(6):
                 mapped[:, i] = left
-            # Map right channel to channels 7-12
             for i in range(6, 12):
                 mapped[:, i] = right
         elif self.mapping_scheme == 'alternating':
-            # Alternating Scheme: Alternate between left and right for channels 1-12
             mapped = np.zeros((indata.shape[0], 13), dtype=np.float32)
             for i in range(12):
                 if i % 2 == 0:
@@ -231,10 +250,8 @@ class BlackHoleStereoRelayer:
                 else:
                     mapped[:, i] = right
         else:
-            # This block should never be reached due to validation in __init__
             raise ValueError("Invalid mapping_scheme.")
 
-        # Add the 13th channel as the sum of left and right
         mapped[:, 12] = (left + right) / 2
 
         return mapped
@@ -243,37 +260,24 @@ class BlackHoleStereoRelayer:
         """
         Starts the recording thread and begins processing audio chunks.
         """
-        # Start the recording thread
         self._recording_thread = threading.Thread(target=self._record_audio, daemon=True)
         self._recording_thread.start()
 
         try:
             while not self._stop_event.is_set():
                 if self.audio_deque:
-                    # Retrieve the latest audio chunk
                     latest_chunk = self.audio_deque.popleft()
 
-                    # Ensure it's a NumPy array
                     if not isinstance(latest_chunk, np.ndarray):
                         latest_chunk = np.array(latest_chunk)
 
-                    # # Map the channels to 13 channels
-                    # try:
-                    #     mapped_chunk = self._map_channels(latest_chunk)
-                    # except ValueError as ve:
-                    #     logging.error(f"Channel mapping error: {ve}")
-                    #     continue
-
-                    # Transpose and scale the audio chunk
                     processed_chunk = latest_chunk.T * self.stream_volume
 
-                    # Send the processed chunk to the SoundNetworkStreamer
                     self.sound_streamer.send(processed_chunk)
 
                     logging.info(f"Processed and sent a new audio chunk of shape {processed_chunk.shape}.")
                 else:
                     logging.debug("No audio data available yet.")
-                # Sleep briefly to prevent a tight loop
                 time.sleep(0.01)
         except KeyboardInterrupt:
             logging.info("\nRecording stopped by user.")
@@ -298,28 +302,17 @@ if __name__ == "__main__":
     print(sd.query_devices())
 
     # Example usage:
-    # Choose the mapping scheme: 'grouped' or 'alternating'
-    mapping_scheme = 'alternating'  # Change to 'alternating' as needed
-
-    # Initialize the relayer with desired parameters
+    mapping_scheme = 'alternating'
     relayer = BlackHoleStereoRelayer(mapping_scheme=mapping_scheme)
-
-    # Start the relayer
     relayer.start()
 
 if __name__ == "__main__x":
-# Instantiate the SoundNetworkStreamer
     sound_streamer = SoundNetworkStreamer()
-
-    # Generate a uniform noise array with 13 channels
-    nmb_blocks = 200  # Duration in seconds
+    nmb_blocks = 200
     num_channels = 13
-    noise_array = np.random.uniform(low=-1.0, high=1.0, size=(int(BLOCKSIZE*nmb_blocks), num_channels))
+    noise_array = np.random.uniform(low=-1.0, high=1.0, size=(int(BLOCKSIZE * nmb_blocks), num_channels))
     noise_array = np.clip(noise_array, -1, 1)
     noise_array *= 0.3
-    # Send the noise array to the SoundNetworkStreamer
     x = sound_streamer.send_and_receive(noise_array.T)
     print(x)
-
-    # Close the streamer after sending
     # sound_streamer.close()
