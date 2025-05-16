@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from tools.playback_stream import SoundNetworkStreamer, BLOCKSIZE
+from tools.playback_stream import SoundNetworkStreamer, BLOCKSIZE, BlackHoleStereoRelayer
 
 class DummySimulatedSocket:
     """
@@ -45,6 +45,19 @@ def test_send_and_receive(simulated_streamer):
     echoed = simulated_streamer.send_and_receive(dummy_data)
     # Verify that the echoed data is the same as sent data
     np.testing.assert_array_equal(echoed, dummy_data)
+
+def test_toggle_playback_mode(monkeypatch):
+    # Override get_device_index_by_name to bypass audio device query during testing
+    monkeypatch.setattr(BlackHoleStereoRelayer, 'get_device_index_by_name', lambda self, device_name: 0)
+    # Create the relayer with initial mode 'alternating'
+    relayer = BlackHoleStereoRelayer(mapping_scheme='alternating')
+    assert relayer.mapping_scheme == 'alternating'
+    # Simulate pressing 'T' to toggle mode
+    relayer.handle_key_press('T')
+    assert relayer.mapping_scheme == 'grouped'
+    # Toggle back to alternating
+    relayer.handle_key_press('T')
+    assert relayer.mapping_scheme == 'alternating'
 
 if __name__ == "__main__":
     pytest.main([__file__])

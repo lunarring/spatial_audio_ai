@@ -256,6 +256,22 @@ class BlackHoleStereoRelayer:
 
         return mapped
 
+    def handle_key_press(self, key: str):
+        """
+        Handles key press events. When the 'T' key is pressed, toggles the playback mode 
+        between 'alternating' and 'grouped' (stereo) modes.
+        
+        Parameters:
+        - key (str): The key that was pressed.
+        """
+        if key.upper() == 'T':
+            previous_mode = self.mapping_scheme
+            if self.mapping_scheme == 'alternating':
+                self.mapping_scheme = 'grouped'
+            else:
+                self.mapping_scheme = 'alternating'
+            print(f"Playback mode toggled from {previous_mode} to {self.mapping_scheme}")
+
     def start(self):
         """
         Starts the recording thread and begins processing audio chunks.
