@@ -150,6 +150,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Play audio through specified speaker with given amplitude')
     parser.add_argument('--speaker', type=int, default=1, help=f'Speaker number (1-{N_SPEAKERS}, default: 1)')
     parser.add_argument('--amplitude', type=float, default=0.1, help='Amplitude of the audio (default: 0.1)')
+    parser.add_argument('--duration', type=float, default=1.0, help='Duration in seconds (default: 1.0)')
     args = parser.parse_args()
 
     # Validate speaker number
@@ -157,16 +158,20 @@ if __name__ == "__main__":
         raise ValueError(f"Speaker number must be between 1 and {N_SPEAKERS}")
 
     sound_sys = SoundSystem(logging.INFO)
-    file_name = "latest.npy"
-    sound_file = np.load(file_name)
-    sound_file_new = np.zeros_like(sound_file)
+    
+    # Generate random audio data
+    n_samples = int(args.duration * SAMPLING_RATE)
+    # Round up to nearest multiple of BLOCKSIZE
+    n_samples = ((n_samples + BLOCKSIZE - 1) // BLOCKSIZE) * BLOCKSIZE
+    actual_duration = n_samples / SAMPLING_RATE
+    
+    sound_file = np.zeros((N_SPEAKERS, n_samples))
     channel = args.speaker - 1
-    sound_file_new[channel, :] = np.random.randn(sound_file.shape[1])
-    sound_file = sound_file_new
+    sound_file[channel, :] = np.random.randn(n_samples)
     sound_file *= args.amplitude
-    duration = sound_file.shape[1] / SAMPLING_RATE
-    print(f'Playing {file_name} with duration {duration:.2f} seconds')
-    sound_sys.add_to_playback_queue(sound_file[:,0:500*BLOCKSIZE], 0)
-    time.sleep(1.1*sound_file.shape[1] / SAMPLING_RATE)
+    
+    print(f'Playing random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
+    sound_sys.add_to_playback_queue(sound_file, 0)
+    time.sleep(1.1 * actual_duration)
 
 
