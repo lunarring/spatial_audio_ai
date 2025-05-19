@@ -123,7 +123,7 @@ class BlackHoleStereoRelayer:
                  chunk_size=1024 * 10,
                  device_name="BlackHole 64ch",
                  max_queue_size=1000,
-                 stream_volume=0.1,
+                 stream_volume=0.7,
                  mapping_scheme='alternating'):
         """
         Initializes the BlackHoleStereoRelayer.
