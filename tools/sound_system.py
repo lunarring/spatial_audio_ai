@@ -55,6 +55,8 @@ class StreamManager():
         self.stream = sd.OutputStream(device=self.device, samplerate=self.samplerate, channels=2, callback=self.callback)
         self.stream.start()
 
+    
+
 
 class SoundSystem():
 
@@ -77,6 +79,15 @@ class SoundSystem():
             # self.streams[speaker].queue.append(speaker_audio)
 
         self.logger.info("Playing")
+
+    def get_current_buffer_time(self) -> int:
+        "Return the length of the queue of the first stream."
+        first_stream_key = next(iter(self.streams))
+        nmb_blocks = len(self.streams[first_stream_key].queue)
+        nmb_samples = nmb_blocks * BLOCKSIZE
+        remaining_time = nmb_samples / SAMPLING_RATE
+        return remaining_time
+
 
     def _start_streams(self) -> None:
         "Initalize and start streams for each speaker in the config."
@@ -136,24 +147,28 @@ class SoundSystem():
 
 if __name__ == "__main__":
     # # GOOD PLAYBACK
-    if False:
-        sound_sys = SoundSystem(logging.INFO)
-        file_name = "latest.npy"
-        amplitude = 0.3
-        sound_file = np.load(file_name)
-        sound_file *= amplitude
-        duration = sound_file.shape[1] / SAMPLING_RATE
-        print(f'Playing {file_name} with duration {duration:.2f} seconds')
-        sound_sys.play(sound_file, duration)
+    # if False:
+    #     sound_sys = SoundSystem(logging.INFO)
+    #     file_name = "latest.npy"
+    #     amplitude = 0.1
+    #     sound_file = np.load(file_name)
+    #     sound_file *= amplitude
+    #     duration = sound_file.shape[1] / SAMPLING_RATE
+    #     print(f'Playing {file_name} with duration {duration:.2f} seconds')
+    #     sound_sys.play(sound_file, duration)
 
     # Chunking Test
     if True:
         sound_sys = SoundSystem(logging.INFO)
         file_name = "latest.npy"
-        amplitude = 0.2
+        amplitude = 0.1
+        speaker = 1
+        channel = speaker - 1 
         sound_file = np.load(file_name)
+        sound_file_new = np.zeros_like(sound_file)
+        sound_file_new[channel, :] = np.random.randn(sound_file.shape[1])
+        sound_file = sound_file_new
         sound_file *= amplitude
-
         sound_sys.add_to_playback_queue(sound_file[:,0:500*BLOCKSIZE], 0)
         time.sleep(1.1*sound_file.shape[1] / SAMPLING_RATE)
 
