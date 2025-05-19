@@ -7,6 +7,7 @@ import asyncio
 import threading
 import numpy as np
 import sounddevice as sd
+import argparse
 
 BLOCKSIZE = 1024
 sd.default.blocksize = BLOCKSIZE
@@ -146,30 +147,26 @@ class SoundSystem():
         return name
 
 if __name__ == "__main__":
-    # # GOOD PLAYBACK
-    # if False:
-    #     sound_sys = SoundSystem(logging.INFO)
-    #     file_name = "latest.npy"
-    #     amplitude = 0.1
-    #     sound_file = np.load(file_name)
-    #     sound_file *= amplitude
-    #     duration = sound_file.shape[1] / SAMPLING_RATE
-    #     print(f'Playing {file_name} with duration {duration:.2f} seconds')
-    #     sound_sys.play(sound_file, duration)
+    parser = argparse.ArgumentParser(description='Play audio through specified speaker with given amplitude')
+    parser.add_argument('--speaker', type=int, default=1, help=f'Speaker number (1-{N_SPEAKERS}, default: 1)')
+    parser.add_argument('--amplitude', type=float, default=0.1, help='Amplitude of the audio (default: 0.1)')
+    args = parser.parse_args()
 
-    # Chunking Test
-    if True:
-        sound_sys = SoundSystem(logging.INFO)
-        file_name = "latest.npy"
-        amplitude = 0.1
-        speaker = 1
-        channel = speaker - 1 
-        sound_file = np.load(file_name)
-        sound_file_new = np.zeros_like(sound_file)
-        sound_file_new[channel, :] = np.random.randn(sound_file.shape[1])
-        sound_file = sound_file_new
-        sound_file *= amplitude
-        sound_sys.add_to_playback_queue(sound_file[:,0:500*BLOCKSIZE], 0)
-        time.sleep(1.1*sound_file.shape[1] / SAMPLING_RATE)
+    # Validate speaker number
+    if not 1 <= args.speaker <= N_SPEAKERS:
+        raise ValueError(f"Speaker number must be between 1 and {N_SPEAKERS}")
+
+    sound_sys = SoundSystem(logging.INFO)
+    file_name = "latest.npy"
+    sound_file = np.load(file_name)
+    sound_file_new = np.zeros_like(sound_file)
+    channel = args.speaker - 1
+    sound_file_new[channel, :] = np.random.randn(sound_file.shape[1])
+    sound_file = sound_file_new
+    sound_file *= args.amplitude
+    duration = sound_file.shape[1] / SAMPLING_RATE
+    print(f'Playing {file_name} with duration {duration:.2f} seconds')
+    sound_sys.add_to_playback_queue(sound_file[:,0:500*BLOCKSIZE], 0)
+    time.sleep(1.1*sound_file.shape[1] / SAMPLING_RATE)
 
 
