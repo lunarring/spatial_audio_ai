@@ -31,7 +31,7 @@ class StereoChannels(IntEnum):
     RIGHT = 1
 
 class StreamManager():
-    def __init__(self,device : int, samplerate : int, stereo_channel_idx : int) -> None:
+    def __init__(self, device : int, samplerate : int, stereo_channel_idx : int) -> None:
         self.device = device
         self.samplerate = samplerate
         self.stereo_channel_idx = stereo_channel_idx
@@ -56,39 +56,72 @@ class StreamManager():
         self.stream = sd.OutputStream(device=self.device, samplerate=self.samplerate, channels=2, callback=self.callback)
         self.stream.start()
 
+
+class MockStreamManager():
+    """A mock version of StreamManager that doesn't use actual audio devices"""
+    def __init__(self, samplerate : int = SAMPLING_RATE) -> None:
+        self.samplerate = samplerate
+        self.queue = deque()
     
+    def start(self) -> None:
+        pass  # No actual stream to start
 
 
 class SoundSystem():
 
-    def __init__(self, log_level = logging.INFO) -> None:
-        self.logger = logging.getLogger(self.__class__.__name__)  # not sure if the correct way
+    def __init__(self, log_level=logging.INFO, mock_mode=False) -> None:
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(level=log_level)
-        self.config = self._make_config()
-        self.streams = self._start_streams()
+        self.mock_mode = mock_mode
+        
+        if not mock_mode:
+            try:
+                self.config = self._make_config()
+                self.streams = self._start_streams()
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize real sound system: {e}")
+                self.logger.warning("Falling back to mock mode")
+                self.mock_mode = True
+        
+        if self.mock_mode:
+            self.streams = self._start_mock_streams()
 
     def add_to_playback_queue(self, data : np.array, duration : float = 0.01) -> None:
         assert len(data.shape) == 2, f"data.shape must have 2 elements (data.shape is {data.shape})"
         assert data.shape[1] % BLOCKSIZE == 0, f"Data length must be divisible by BLOCKSIZE ({BLOCKSIZE})"
         "Play an audio file with distinct audi data per channel."
+        
+        if self.mock_mode:
+            self.logger.info("Mock mode: audio would be played")
+            return
+            
         for speaker_id, speaker_audio in enumerate(data):
             speaker = list(self.streams.keys())[speaker_id]
             # Chunk into BLOCKSIZE
             for i in range(0, len(speaker_audio), BLOCKSIZE):
                 chunk = speaker_audio[i:i + BLOCKSIZE]
                 self.streams[speaker].queue.append(chunk)
-            # self.streams[speaker].queue.append(speaker_audio)
 
         self.logger.info("Playing")
 
     def get_current_buffer_time(self) -> int:
         "Return the length of the queue of the first stream."
+        if self.mock_mode:
+            return 0
+            
         first_stream_key = next(iter(self.streams))
         nmb_blocks = len(self.streams[first_stream_key].queue)
         nmb_samples = nmb_blocks * BLOCKSIZE
         remaining_time = nmb_samples / SAMPLING_RATE
         return remaining_time
 
+    def _start_mock_streams(self) -> dict:
+        """Initialize mock streams for testing without hardware"""
+        streams = {}
+        for speaker in SPEAKER_SOUNDCARD_CLUSTER_MAPPING.keys():
+            streams[speaker] = MockStreamManager()
+            streams[speaker].start()
+        return streams
 
     def _start_streams(self) -> None:
         "Initalize and start streams for each speaker in the config."
@@ -151,13 +184,14 @@ if __name__ == "__main__":
     parser.add_argument('--speaker', type=int, default=1, help=f'Speaker number (1-{N_SPEAKERS}, default: 1)')
     parser.add_argument('--amplitude', type=float, default=0.1, help='Amplitude of the audio (default: 0.1)')
     parser.add_argument('--duration', type=float, default=1.0, help='Duration in seconds (default: 1.0)')
+    parser.add_argument('--mock', action='store_true', help='Use mock mode (no hardware required)')
     args = parser.parse_args()
 
     # Validate speaker number
     if not 1 <= args.speaker <= N_SPEAKERS:
         raise ValueError(f"Speaker number must be between 1 and {N_SPEAKERS}")
 
-    sound_sys = SoundSystem(logging.INFO)
+    sound_sys = SoundSystem(logging.INFO, mock_mode=args.mock)
     
     # Generate random audio data
     n_samples = int(args.duration * SAMPLING_RATE)

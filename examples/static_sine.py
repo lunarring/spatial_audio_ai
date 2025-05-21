@@ -1,30 +1,33 @@
 import numpy as np
-import soundfile as sf
+import time
 from spatial_audio_ai import (
-    SoundNetworkStreamer, 
     SO_Playback, 
     Spatializer, 
-    Scene
+    Scene,
+    SoundNetworkStreamer
 )
+from spatial_audio_ai.tools.spatializer import CHUNKSIZE, SAMPLING_RATE
 
-sound_streamer = SoundNetworkStreamer()
+# Generate a simple sine wave
+sample_rate = 44100  # Standard sample rate
+duration = 5  # Duration in seconds
+frequency = 440  # A4 note frequency in Hz
 
-raw_sound1 = sf.read("/home/lugo/Downloads/song.wav")
-sound11 = np.sin(0.5*1e-2*np.linspace(0, 44100*25*5, 44100*25*5))
-sound12 = np.sin(0.7*1e-2*np.linspace(0, 44100*25*5, 44100*25*5))
-sound1 = (sound11 + sound12)*0.4
-sound1 = np.tile(np.expand_dims(sound1, axis=1), (1, 2))
-raw_sound1 = (sound1, raw_sound1[1])
+# Create a sine wave
+t = np.linspace(0, duration, int(sample_rate * duration), False)
+# Amplitude 0.5 to avoid clipping
+sine_wave = 0.5 * np.sin(2 * np.pi * frequency * t)
 
-raw_sound2 = sf.read("/home/lugo/Downloads/song.wav")
-sound21 = np.sin(4.8*1e-2*np.linspace(0, 44100*25*5, 44100*25*5))
-sound22 = np.sin(4.9*1e-2*np.linspace(0, 44100*25*5, 44100*25*5))
-sound2 = (sound21 + sound22)*0.2
-sound2 = np.tile(np.expand_dims(sound2, axis=1), (1, 2))
-raw_sound2 = (sound2, raw_sound2[1])        
+# Create a playback sound object
+sound_object = SO_Playback(sine_wave)
 
-so_a = SO_Playback(raw_sound1[0][:, 0])
-
+# Set up the spatial audio scene
 spatializer = Spatializer()
 scene = Scene(spatializer)
-scene.register(so_a)
+scene.register(sound_object)
+
+sound_streamer = SoundNetworkStreamer()
+for j, chunk in enumerate(scene.run()):
+    chunk = np.clip(chunk, -1, 1)
+    sound_streamer.send(chunk)
+    time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)

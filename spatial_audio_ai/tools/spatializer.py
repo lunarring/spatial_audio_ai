@@ -7,10 +7,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import soundfile as sf
 import time
-from numpysocket import NumpySocket
+from spatial_audio_ai.tools.numpysocket import NumpySocket
 import os
 import random
-from playback_stream import SoundNetworkStreamer
+from spatial_audio_ai.tools.playback_stream import SoundNetworkStreamer
 
 BLOCKSIZE = 1024
 CHUNKSIZE = BLOCKSIZE*4

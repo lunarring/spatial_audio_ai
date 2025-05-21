@@ -5,7 +5,7 @@ from typing import List, Tuple
 from abc import ABC, abstractmethod
 import soundfile as sf
 import time
-from numpysocket import NumpySocket
+from spatial_audio_ai.tools.numpysocket import NumpySocket
 import os
 import random
 from collections import deque
