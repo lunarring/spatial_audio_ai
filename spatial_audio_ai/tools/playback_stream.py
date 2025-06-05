@@ -457,25 +457,108 @@ def create_gradio_interface(relayer):
                 master_status = gr.Textbox(label="Master Status", interactive=False)
                 mapping_status = gr.Textbox(label="Mapping Status", interactive=False)
         
-        with gr.Row():
-            gr.Markdown("## Individual Channel Volumes")
+        gr.Markdown("## Individual Channel Volumes")
+        
+        # Initialize lists for all sliders and checkboxes (in correct order 1-13)
+        ch_sliders = [None] * 13
+        ch_solo_checkboxes = [None] * 13
             
+        # Row 1: Channels 1-5
         with gr.Row():
-            ch_sliders = []
-            ch_solo_checkboxes = []
-            for i in range(13):
-                with gr.Column(scale=1):
+            for i in range(5):
+                with gr.Column(min_width=150):
                     slider = gr.Slider(
                         minimum=0.0, maximum=2.0, value=1.0, step=0.01,
                         label=f"Ch {i+1}"
                     )
-                    ch_sliders.append(slider)
+                    ch_sliders[i] = slider  # Store in correct index
                     
                     solo_checkbox = gr.Checkbox(
                         value=False,
                         label="Solo"
                     )
-                    ch_solo_checkboxes.append(solo_checkbox)
+                    ch_solo_checkboxes[i] = solo_checkbox  # Store in correct index
+        
+        # Row 2: Channel 12 (left) and Channel 6 (right)
+        with gr.Row():
+            # Ch 12 on the left
+            with gr.Column(min_width=150):
+                slider = gr.Slider(
+                    minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                    label="Ch 12"
+                )
+                ch_sliders[11] = slider  # Channel 12 goes to index 11
+                
+                solo_checkbox = gr.Checkbox(
+                    value=False,
+                    label="Solo"
+                )
+                ch_solo_checkboxes[11] = solo_checkbox
+            
+            # Empty space in middle
+            with gr.Column(min_width=150):
+                gr.HTML("")
+            with gr.Column(min_width=150):
+                gr.HTML("")
+            with gr.Column(min_width=150):
+                gr.HTML("")
+            
+            # Ch 6 on the right
+            with gr.Column(min_width=150):
+                slider = gr.Slider(
+                    minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                    label="Ch 6"
+                )
+                ch_sliders[5] = slider  # Channel 6 goes to index 5
+                
+                solo_checkbox = gr.Checkbox(
+                    value=False,
+                    label="Solo"
+                )
+                ch_solo_checkboxes[5] = solo_checkbox
+        
+        # Row 3: Channels 11, 10, 9, 8, 7 (in that order)
+        with gr.Row():
+            for visual_pos, ch_num in enumerate([11, 10, 9, 8, 7]):
+                with gr.Column(min_width=150):
+                    slider = gr.Slider(
+                        minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                        label=f"Ch {ch_num}"
+                    )
+                    ch_sliders[ch_num - 1] = slider  # Store in correct index (ch_num - 1)
+                    
+                    solo_checkbox = gr.Checkbox(
+                        value=False,
+                        label="Solo"
+                    )
+                    ch_solo_checkboxes[ch_num - 1] = solo_checkbox
+        
+        # Row 4: Channel 13 alone
+        with gr.Row():
+            # Empty space for centering
+            with gr.Column(min_width=150):
+                gr.HTML("")
+            with gr.Column(min_width=150):
+                gr.HTML("")
+            
+            with gr.Column(min_width=150):
+                slider = gr.Slider(
+                    minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                    label="Ch 13"
+                )
+                ch_sliders[12] = slider  # Channel 13 goes to index 12
+                
+                solo_checkbox = gr.Checkbox(
+                    value=False,
+                    label="Solo"
+                )
+                ch_solo_checkboxes[12] = solo_checkbox
+            
+            # Empty space for centering
+            with gr.Column(min_width=150):
+                gr.HTML("")
+            with gr.Column(min_width=150):
+                gr.HTML("")
         
         ch_status = gr.Textbox(label="Channel Status", interactive=False)
         solo_status = gr.Textbox(label="Solo Status", interactive=False)
