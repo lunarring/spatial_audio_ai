@@ -11,6 +11,7 @@ import random
 from collections import deque
 import threading
 import logging
+import gradio as gr
 
 BLOCKSIZE = 1024
 CHUNKSIZE = BLOCKSIZE * 4
@@ -148,6 +149,9 @@ class BlackHoleStereoRelayer:
         self.max_queue_size = max_queue_size
         self.stream_volume = stream_volume
         self.mapping_scheme = mapping_scheme.lower()
+        
+        # Individual channel volumes (13 channels)
+        self.channel_volumes = [1.0] * 13
 
         # Validate mapping scheme
         if self.mapping_scheme not in ['stereo', 'alternating']:
@@ -255,6 +259,10 @@ class BlackHoleStereoRelayer:
 
         mapped[:, 12] = (left + right) / 2
 
+        # Apply individual channel volumes
+        for i in range(13):
+            mapped[:, i] *= self.channel_volumes[i]
+
         return mapped
 
     def handle_key_press(self, key: str):
@@ -312,6 +320,94 @@ class BlackHoleStereoRelayer:
             self._recording_thread.join()
         logging.info("Recording and processing have been stopped.")
 
+    def update_master_volume(self, volume):
+        """Update master volume."""
+        self.stream_volume = volume
+        
+    def update_channel_volume(self, channel_idx, volume):
+        """Update individual channel volume."""
+        if 0 <= channel_idx < 13:
+            self.channel_volumes[channel_idx] = volume
+            
+    def update_mapping_scheme(self, scheme):
+        """Update mapping scheme."""
+        if scheme.lower() in ['stereo', 'alternating']:
+            self.mapping_scheme = scheme.lower()
+
+
+def create_gradio_interface(relayer):
+    """Create Gradio interface for controlling the audio relayer."""
+    
+    def update_master_vol(vol):
+        relayer.update_master_volume(vol)
+        return f"Master volume: {vol:.2f}"
+    
+    def update_mapping(scheme):
+        relayer.update_mapping_scheme(scheme)
+        return f"Mapping scheme: {scheme}"
+    
+    def update_ch_vol(ch0, ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, ch11, ch12):
+        volumes = [ch0, ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, ch11, ch12]
+        for i, vol in enumerate(volumes):
+            relayer.update_channel_volume(i, vol)
+        return f"Channel volumes updated"
+    
+    with gr.Blocks(title="Spatial Audio Control") as interface:
+        gr.Markdown("# Spatial Audio Control Interface")
+        
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("## Master Controls")
+                master_volume = gr.Slider(
+                    minimum=0.0, maximum=2.0, value=0.7, step=0.01,
+                    label="Master Volume"
+                )
+                mapping_scheme = gr.Radio(
+                    choices=["alternating", "stereo"], 
+                    value="alternating",
+                    label="Mapping Scheme"
+                )
+                
+                master_status = gr.Textbox(label="Master Status", interactive=False)
+                mapping_status = gr.Textbox(label="Mapping Status", interactive=False)
+        
+        with gr.Row():
+            gr.Markdown("## Individual Channel Volumes")
+            
+        with gr.Row():
+            ch_sliders = []
+            for i in range(13):
+                with gr.Column(scale=1):
+                    slider = gr.Slider(
+                        minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                        label=f"Ch {i+1}"
+                    )
+                    ch_sliders.append(slider)
+        
+        ch_status = gr.Textbox(label="Channel Status", interactive=False)
+        
+        # Event handlers
+        master_volume.change(
+            fn=update_master_vol,
+            inputs=[master_volume],
+            outputs=[master_status]
+        )
+        
+        mapping_scheme.change(
+            fn=update_mapping,
+            inputs=[mapping_scheme],
+            outputs=[mapping_status]
+        )
+        
+        for slider in ch_sliders:
+            slider.change(
+                fn=update_ch_vol,
+                inputs=ch_sliders,
+                outputs=[ch_status]
+            )
+    
+    return interface
+
 
 if __name__ == "__main__":
     # Optional: Print available devices for verification
@@ -321,7 +417,16 @@ if __name__ == "__main__":
     # Example usage:
     mapping_scheme = 'alternating'
     relayer = BlackHoleStereoRelayer(mapping_scheme=mapping_scheme)
-    relayer.start()
+    
+    # Create and launch Gradio interface
+    interface = create_gradio_interface(relayer)
+    
+    # Start relayer in a separate thread
+    relayer_thread = threading.Thread(target=relayer.start, daemon=True)
+    relayer_thread.start()
+    
+    # Launch Gradio interface
+    interface.launch(share=False, server_name="127.0.0.1", server_port=7860)
 
 if __name__ == "__main__x":
     sound_streamer = SoundNetworkStreamer()
