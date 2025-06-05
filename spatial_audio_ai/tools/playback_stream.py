@@ -152,6 +152,9 @@ class BlackHoleStereoRelayer:
         
         # Individual channel volumes (13 channels)
         self.channel_volumes = [1.0] * 13
+        
+        # Solo states for each channel (13 channels)
+        self.channel_solo = [False] * 13
 
         # Validate mapping scheme
         if self.mapping_scheme not in ['stereo', 'alternating', 'mono']:
@@ -269,6 +272,12 @@ class BlackHoleStereoRelayer:
         for i in range(13):
             mapped[:, i] *= self.channel_volumes[i]
 
+        # Apply solo logic - if any channel is soloed, mute all non-soloed channels
+        if any(self.channel_solo):
+            for i in range(13):
+                if not self.channel_solo[i]:
+                    mapped[:, i] = 0.0
+
         return mapped
 
     def handle_key_press(self, key: str):
@@ -335,6 +344,11 @@ class BlackHoleStereoRelayer:
         if 0 <= channel_idx < 13:
             self.channel_volumes[channel_idx] = volume
             
+    def update_channel_solo(self, channel_idx, solo_state):
+        """Update individual channel solo state."""
+        if 0 <= channel_idx < 13:
+            self.channel_solo[channel_idx] = solo_state
+            
     def update_mapping_scheme(self, scheme):
         """Update mapping scheme."""
         if scheme.lower() in ['stereo', 'alternating', 'mono']:
@@ -357,6 +371,16 @@ def create_gradio_interface(relayer):
         for i, vol in enumerate(volumes):
             relayer.update_channel_volume(i, vol)
         return f"Channel volumes updated"
+    
+    def update_ch_solo(s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12):
+        solo_states = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12]
+        for i, solo in enumerate(solo_states):
+            relayer.update_channel_solo(i, solo)
+        active_solos = [i+1 for i, solo in enumerate(solo_states) if solo]
+        if active_solos:
+            return f"Solo active on channels: {', '.join(map(str, active_solos))}"
+        else:
+            return "No channels soloed"
     
     with gr.Blocks(title="Spatial Audio Control") as interface:
         gr.Markdown("# Spatial Audio Control Interface")
@@ -382,6 +406,7 @@ def create_gradio_interface(relayer):
             
         with gr.Row():
             ch_sliders = []
+            ch_solo_checkboxes = []
             for i in range(13):
                 with gr.Column(scale=1):
                     slider = gr.Slider(
@@ -389,8 +414,15 @@ def create_gradio_interface(relayer):
                         label=f"Ch {i+1}"
                     )
                     ch_sliders.append(slider)
+                    
+                    solo_checkbox = gr.Checkbox(
+                        value=False,
+                        label="Solo"
+                    )
+                    ch_solo_checkboxes.append(solo_checkbox)
         
         ch_status = gr.Textbox(label="Channel Status", interactive=False)
+        solo_status = gr.Textbox(label="Solo Status", interactive=False)
         
         # Event handlers
         master_volume.change(
@@ -410,6 +442,13 @@ def create_gradio_interface(relayer):
                 fn=update_ch_vol,
                 inputs=ch_sliders,
                 outputs=[ch_status]
+            )
+        
+        for checkbox in ch_solo_checkboxes:
+            checkbox.change(
+                fn=update_ch_solo,
+                inputs=ch_solo_checkboxes,
+                outputs=[solo_status]
             )
     
     return interface
