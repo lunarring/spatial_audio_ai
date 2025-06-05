@@ -154,8 +154,8 @@ class BlackHoleStereoRelayer:
         self.channel_volumes = [1.0] * 13
 
         # Validate mapping scheme
-        if self.mapping_scheme not in ['stereo', 'alternating']:
-            raise ValueError("Invalid mapping_scheme. Choose 'stereo' or 'alternating'.")
+        if self.mapping_scheme not in ['stereo', 'alternating', 'mono']:
+            raise ValueError("Invalid mapping_scheme. Choose 'stereo', 'alternating', or 'mono'.")
 
         # Initialize the deque to store audio chunks
         self.audio_deque = deque(maxlen=self.max_queue_size)
@@ -254,9 +254,15 @@ class BlackHoleStereoRelayer:
                     mapped[:, i] = left
                 else:
                     mapped[:, i] = right
+        elif self.mapping_scheme == 'mono':
+            # Mono mapping: averaged left+right signal to all channels
+            mono_signal = (left + right) / 2
+            for i in range(12):
+                mapped[:, i] = mono_signal
         else:
             raise ValueError("Invalid mapping_scheme.")
 
+        # 13th channel is always the sum of left and right (or mono signal for mono mode)
         mapped[:, 12] = (left + right) / 2
 
         # Apply individual channel volumes
@@ -331,7 +337,7 @@ class BlackHoleStereoRelayer:
             
     def update_mapping_scheme(self, scheme):
         """Update mapping scheme."""
-        if scheme.lower() in ['stereo', 'alternating']:
+        if scheme.lower() in ['stereo', 'alternating', 'mono']:
             self.mapping_scheme = scheme.lower()
 
 
@@ -363,7 +369,7 @@ def create_gradio_interface(relayer):
                     label="Master Volume"
                 )
                 mapping_scheme = gr.Radio(
-                    choices=["alternating", "stereo"], 
+                    choices=["alternating", "stereo", "mono"], 
                     value="alternating",
                     label="Mapping Scheme"
                 )
