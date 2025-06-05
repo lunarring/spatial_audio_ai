@@ -374,13 +374,69 @@ def create_gradio_interface(relayer):
     
     def update_ch_solo(s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12):
         solo_states = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12]
-        for i, solo in enumerate(solo_states):
-            relayer.update_channel_solo(i, solo)
-        active_solos = [i+1 for i, solo in enumerate(solo_states) if solo]
-        if active_solos:
-            return f"Solo active on channels: {', '.join(map(str, active_solos))}"
+        
+        # Count how many channels are currently soloed
+        current_solo_count = sum(relayer.channel_solo)
+        new_solo_count = sum(solo_states)
+        
+        if new_solo_count == 0:
+            # All checkboxes unchecked - turn off all solos
+            for i in range(13):
+                relayer.update_channel_solo(i, False)
+            return ("No channels soloed", *[False] * 13)
+        elif new_solo_count == 1:
+            # Exactly one checkbox is checked - find it and solo only that one
+            newly_soloed = solo_states.index(True)
+            
+            # Reset all solo states
+            for i in range(13):
+                relayer.update_channel_solo(i, False)
+            # Set only the newly soloed channel
+            relayer.update_channel_solo(newly_soloed, True)
+            
+            # Return updated checkbox states for UI
+            updated_states = [False] * 13
+            updated_states[newly_soloed] = True
+            return (f"Solo active on channel: {newly_soloed + 1}", *updated_states)
         else:
-            return "No channels soloed"
+            # Multiple checkboxes are checked - find the most recently clicked one
+            # This happens when user clicks a second checkbox while first is still checked
+            if current_solo_count == 1:
+                # Find which channel was previously soloed
+                prev_soloed = relayer.channel_solo.index(True)
+                # Find the new one (the one that's not the previous one)
+                for i, solo in enumerate(solo_states):
+                    if solo and i != prev_soloed:
+                        newly_soloed = i
+                        break
+                else:
+                    # Fallback: use the first True one
+                    newly_soloed = solo_states.index(True)
+                
+                # Reset all solo states
+                for i in range(13):
+                    relayer.update_channel_solo(i, False)
+                # Set only the newly soloed channel
+                relayer.update_channel_solo(newly_soloed, True)
+                
+                # Return updated checkbox states for UI
+                updated_states = [False] * 13
+                updated_states[newly_soloed] = True
+                return (f"Solo active on channel: {newly_soloed + 1}", *updated_states)
+            else:
+                # Fallback: solo the first checked channel
+                newly_soloed = solo_states.index(True)
+                
+                # Reset all solo states
+                for i in range(13):
+                    relayer.update_channel_solo(i, False)
+                # Set only the newly soloed channel
+                relayer.update_channel_solo(newly_soloed, True)
+                
+                # Return updated checkbox states for UI
+                updated_states = [False] * 13
+                updated_states[newly_soloed] = True
+                return (f"Solo active on channel: {newly_soloed + 1}", *updated_states)
     
     with gr.Blocks(title="Spatial Audio Control") as interface:
         gr.Markdown("# Spatial Audio Control Interface")
@@ -448,7 +504,7 @@ def create_gradio_interface(relayer):
             checkbox.change(
                 fn=update_ch_solo,
                 inputs=ch_solo_checkboxes,
-                outputs=[solo_status]
+                outputs=[solo_status] + ch_solo_checkboxes
             )
     
     return interface
