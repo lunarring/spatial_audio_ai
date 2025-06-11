@@ -12,11 +12,12 @@ from spatial_audio_ai.tools.sound_system import SoundSystem
 logger = logging.getLogger("sound server")
 logger.setLevel(logging.INFO)
 
-def handle_client(conn, addr, sound_system):
+def handle_client(conn, addr, sound_system, verbose=False):
     """Handle a single client connection"""
     try:
         logger.info(f"Connected: {addr}")
-        print(f"Client connected from {addr}")
+        if verbose:
+            print(f"Client connected from {addr}")
         
         while True:
             try:
@@ -28,8 +29,9 @@ def handle_client(conn, addr, sound_system):
                     break # Exit the loop for this client
                     
                 if len(sound_array.shape) == 2:
-                    logger.info(f"Received sound array with shape {sound_array.shape}")
-                    logger.info(f"Sound array stats - Min: {np.min(sound_array)}, Max: {np.max(sound_array)}, Mean: {np.mean(sound_array)}, Std: {np.std(sound_array)}")
+                    if verbose:
+                        logger.info(f"Received sound array with shape {sound_array.shape}")
+                        logger.info(f"Sound array stats - Min: {np.min(sound_array)}, Max: {np.max(sound_array)}, Mean: {np.mean(sound_array)}, Std: {np.std(sound_array)}")
                     sound_system.add_to_playback_queue(sound_array)
                 else:
                     logger.warning(f"Received array with unexpected shape {sound_array.shape} from {addr}. Disconnecting.")
@@ -42,7 +44,8 @@ def handle_client(conn, addr, sound_system):
                 break # Exit loop on other errors
                 
         logger.info(f"Disconnected: {addr}")
-        print(f"Client disconnected from {addr}")
+        if verbose:
+            print(f"Client disconnected from {addr}")
     except Exception as e: # Catch-all for unexpected errors in handle_client setup/teardown
         logger.error(f"Unexpected error in handle_client for {addr}: {e}", exc_info=True)
         print(f"Error handling client {addr}. Check logs.")
@@ -57,12 +60,14 @@ class SoundServer:
         host="10.40.49.47", 
         port=9999, 
         log_level=logging.WARNING,
-        mock_mode=False
+        mock_mode=False,
+        verbose=False
     ):
         self.host = host
         self.port = port
         self.log_level = log_level
         self.mock_mode = mock_mode
+        self.verbose = verbose
     
     def start(self):
         """Start the sound server"""
@@ -78,7 +83,8 @@ class SoundServer:
             
             try:
                 while True:
-                    print("Waiting for client connection...")
+                    if self.verbose:
+                        print("Waiting for client connection...")
                     
                     try:
                         # Wait for a client to connect
@@ -86,7 +92,7 @@ class SoundServer:
                         
                         # Handle this client (blocking until client disconnects)
                         with conn: 
-                            handle_client(conn, addr, sound_system)
+                            handle_client(conn, addr, sound_system, self.verbose)
                             
                     except socket.timeout:
                         # This is for s.accept() timeout, just continue the loop
@@ -118,9 +124,10 @@ def main():
     parser.add_argument('--mock', action='store_true', help='Run in mock mode (no hardware required)')
     parser.add_argument('--host', default="10.40.49.47", help='Host address')
     parser.add_argument('--port', type=int, default=9999, help='Port number')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose output for client connections')
     args = parser.parse_args()
     
-    server = SoundServer(host=args.host, port=args.port, mock_mode=args.mock)
+    server = SoundServer(host=args.host, port=args.port, mock_mode=args.mock, verbose=args.verbose)
     server.start()
 
 
