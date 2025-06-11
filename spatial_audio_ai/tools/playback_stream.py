@@ -64,9 +64,6 @@ class SoundNetworkStreamer:
     def __enter__(self):
         self.socket.connect((self.host, self.port))
         self.socket_connected = True
-        # Set socket timeout to prevent hanging
-        if not self.simulate:
-            self.socket.settimeout(5.0)  # 5 second timeout
         if self.simulate:
             print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
         else:
@@ -86,9 +83,8 @@ class SoundNetworkStreamer:
         if data.ndim == 2:
             if data.shape[1] % BLOCKSIZE == 0:
                 try:
-                    print(f"Sending data with shape {data.shape} to the server...")
                     self.socket.sendall(data)
-                    print(f"Successfully sent data with shape {data.shape} to the server.")
+                    # print(f"Sent data with shape {data.shape} to the server.")
                 except Exception as e:
                     print(f"Failed to send data: {e}")
             else:
@@ -320,7 +316,7 @@ class BlackHoleStereoRelayer:
 
                     self.sound_streamer.send(processed_chunk)
 
-                    logging.debug(f"Processed and sent a new audio chunk of shape {processed_chunk.shape}.")
+                    logging.info(f"Processed and sent a new audio chunk of shape {processed_chunk.shape}.")
                 else:
                     logging.debug("No audio data available yet.")
                 time.sleep(0.01)
@@ -618,40 +614,42 @@ if __name__ == "__main_x_":
     interface.launch(share=False, server_name="127.0.0.1", server_port=7860)
 
 if __name__ == "__main__":
-    sound_streamer = SoundNetworkStreamer()
-    nmb_blocks = 200
-    num_channels = 13
+    import argparse
+    from spatial_audio_ai.tools.tools import generate_random_noise
     
-    # Generate noise for all channels using the existing function
-    duration = (BLOCKSIZE * nmb_blocks) / SAMPLING_RATE
-    noise_array, actual_duration = generate_random_noise(
-        duration=duration,
+    parser = argparse.ArgumentParser(description='Send audio to spatial audio server')
+    parser.add_argument('--speaker', type=int, default=1, help='Speaker number (1-13, default: 1)')
+    parser.add_argument('--amplitude', type=float, default=0.1, help='Amplitude of the audio (default: 0.1)')
+    parser.add_argument('--duration', type=float, default=1.0, help='Duration in seconds (default: 1.0)')
+    parser.add_argument('--host', default="10.40.49.47", help='Server host address')
+    parser.add_argument('--port', type=int, default=9999, help='Server port number')
+    args = parser.parse_args()
+    
+    # Validate speaker number
+    if not 1 <= args.speaker <= 13:
+        raise ValueError(f"Speaker number must be between 1 and 13")
+    
+    sound_streamer = SoundNetworkStreamer(host=args.host, port=args.port)
+    
+    # Generate random audio data for the specified speaker
+    sound_file, actual_duration = generate_random_noise(
+        duration=args.duration,
         sampling_rate=SAMPLING_RATE,
         blocksize=BLOCKSIZE,
-        n_speakers=num_channels,
-        speaker_id=1,  # Use speaker 1 as base
-        amplitude=0.3
+        n_speakers=13,
+        speaker_id=args.speaker,
+        amplitude=args.amplitude
     )
     
-    # Add noise to all channels instead of just one
-    for channel in range(num_channels):
-        noise_array[channel, :] = np.random.randn(noise_array.shape[1]) * 0.3
+    print(f'Sending random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
+    print(f"Sound array shape: {sound_file.shape}")
+    print(f"Data stats - Min: {np.min(sound_file)}, Max: {np.max(sound_file)}, Mean: {np.mean(sound_file)}")
     
-    # Use send() instead of send_and_receive() since server doesn't respond
-    print(f"Sending initial noise array with shape: {noise_array.shape}")
-    print(f"Data stats - Min: {np.min(noise_array)}, Max: {np.max(noise_array)}, Mean: {np.mean(noise_array)}")
-    sound_streamer.send(noise_array)
-    print("Initial data sent to server")
+    # Send the audio data
+    sound_streamer.send(sound_file)
+    print("Data sent to server")
     
-    # Keep the connection alive and optionally send more data
-    try:
-        while True:
-            time.sleep(1)
-            print("Sending more noise data...")
-            # Generate new noise and send it
-            for channel in range(num_channels):
-                noise_array[channel, :] = np.random.randn(noise_array.shape[1]) * 0.3
-            sound_streamer.send(noise_array)
-    except KeyboardInterrupt:
-        print("Stopping...")
-        sound_streamer.close()
+    print(f"Audio chunk sent. Keeping connection alive for {actual_duration:.2f} seconds...")
+    time.sleep(actual_duration)
+    
+    sound_streamer.close()
