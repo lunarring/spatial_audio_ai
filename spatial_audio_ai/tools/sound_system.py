@@ -87,7 +87,7 @@ class SoundSystem():
         if self.mock_mode:
             self.streams = self._start_mock_streams()
 
-    def add_to_playback_queue(self, data : np.array, duration : float = 0.01) -> None:
+    def add_to_playback_queue(self, data : np.array) -> None:
         assert len(data.shape) == 2, f"data.shape must have 2 elements (data.shape is {data.shape})"
         assert data.shape[1] % BLOCKSIZE == 0, f"Data length must be divisible by BLOCKSIZE ({BLOCKSIZE})"
         "Play an audio file with distinct audi data per channel."
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     )
     
     print(f'Playing random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
-    sound_sys.add_to_playback_queue(sound_file, 0)
+    sound_sys.add_to_playback_queue(sound_file)
     time.sleep(1.1 * actual_duration)
 
 
