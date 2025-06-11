@@ -8,6 +8,7 @@ import threading
 import numpy as np
 import sounddevice as sd
 import argparse
+from spatial_audio_ai.tools.tools import generate_random_noise
 
 BLOCKSIZE = 1024
 sd.default.blocksize = BLOCKSIZE
@@ -194,15 +195,14 @@ if __name__ == "__main__":
     sound_sys = SoundSystem(logging.INFO, mock_mode=args.mock)
     
     # Generate random audio data
-    n_samples = int(args.duration * SAMPLING_RATE)
-    # Round up to nearest multiple of BLOCKSIZE
-    n_samples = ((n_samples + BLOCKSIZE - 1) // BLOCKSIZE) * BLOCKSIZE
-    actual_duration = n_samples / SAMPLING_RATE
-    
-    sound_file = np.zeros((N_SPEAKERS, n_samples))
-    channel = args.speaker - 1
-    sound_file[channel, :] = np.random.randn(n_samples)
-    sound_file *= args.amplitude
+    sound_file, actual_duration = generate_random_noise(
+        duration=args.duration,
+        sampling_rate=SAMPLING_RATE,
+        blocksize=BLOCKSIZE,
+        n_speakers=N_SPEAKERS,
+        speaker_id=args.speaker,
+        amplitude=args.amplitude
+    )
     
     print(f'Playing random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
     sound_sys.add_to_playback_queue(sound_file, 0)

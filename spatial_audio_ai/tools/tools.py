@@ -4,7 +4,6 @@ import torch
 import soundfile as sf
 import numpy as np
 import sys
-import lunar_tools as lt
 import torch
 import os
 from datetime import datetime
@@ -146,4 +145,35 @@ def apply_reverb(waveform, sampling_rate=44100, decay=0.5):
 
     # Return the reverb-processed waveform
     return reverb_waveform
+
+
+def generate_random_noise(duration, sampling_rate, blocksize, n_speakers, speaker_id, amplitude=0.1):
+    """
+    Generate random noise audio data for a specific speaker.
+    
+    Parameters:
+    - duration (float): Duration in seconds
+    - sampling_rate (int): Sampling rate in Hz
+    - blocksize (int): Block size for audio processing
+    - n_speakers (int): Total number of speakers
+    - speaker_id (int): Speaker ID (1-based indexing)
+    - amplitude (float): Amplitude of the noise (default: 0.1)
+    
+    Returns:
+    - tuple: (sound_file, actual_duration) where sound_file is numpy array and actual_duration is float
+    """
+    # Calculate number of samples and round up to nearest multiple of blocksize
+    n_samples = int(duration * sampling_rate)
+    n_samples = ((n_samples + blocksize - 1) // blocksize) * blocksize
+    actual_duration = n_samples / sampling_rate
+    
+    # Create sound data for all speakers (zeros)
+    sound_file = np.zeros((n_speakers, n_samples))
+    
+    # Generate noise for the specified speaker (convert to 0-based indexing)
+    channel = speaker_id - 1
+    sound_file[channel, :] = np.random.randn(n_samples)
+    sound_file *= amplitude
+    
+    return sound_file, actual_duration
 

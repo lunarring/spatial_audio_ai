@@ -593,7 +593,7 @@ def create_gradio_interface(relayer):
     return interface
 
 
-if __name__ == "__main__":
+if __name__ == "__main_x_":
     # Optional: Print available devices for verification
     print("Available audio devices:")
     print(sd.query_devices())
@@ -612,7 +612,7 @@ if __name__ == "__main__":
     # Launch Gradio interface
     interface.launch(share=False, server_name="127.0.0.1", server_port=7860)
 
-if __name__ == "__main__x":
+if __name__ == "__main__":
     sound_streamer = SoundNetworkStreamer()
     nmb_blocks = 200
     num_channels = 13
@@ -621,4 +621,6 @@ if __name__ == "__main__x":
     noise_array *= 0.3
     x = sound_streamer.send_and_receive(noise_array.T)
     print(x)
+    while True:
+        time.sleep(1)
     # sound_streamer.close()
