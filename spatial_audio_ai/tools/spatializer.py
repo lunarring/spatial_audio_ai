@@ -10,7 +10,7 @@ import time
 from spatial_audio_ai.tools.numpysocket import NumpySocket
 import os
 import random
-from spatial_audio_ai.tools.playback_stream import SoundNetworkStreamer
+from spatial_audio_ai.tools.client import SoundNetworkStreamer
 
 BLOCKSIZE = 1024
 CHUNKSIZE = BLOCKSIZE*4

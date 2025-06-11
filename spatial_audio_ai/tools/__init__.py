@@ -8,7 +8,7 @@ from spatial_audio_ai.tools.spatializer import (
     Scene,
     SO_Playback
 )
-from spatial_audio_ai.tools.playback_stream import (
+from spatial_audio_ai.tools.client import (
     SoundNetworkStreamer
 )
 from spatial_audio_ai.tools.tools import apply_fade_in_out
