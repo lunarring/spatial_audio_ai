@@ -617,39 +617,72 @@ if __name__ == "__main__":
     import argparse
     from spatial_audio_ai.tools.tools import generate_random_noise
     
-    parser = argparse.ArgumentParser(description='Send audio to spatial audio server')
-    parser.add_argument('--speaker', type=int, default=1, help='Speaker number (1-13, default: 1)')
-    parser.add_argument('--amplitude', type=float, default=0.1, help='Amplitude of the audio (default: 0.1)')
-    parser.add_argument('--duration', type=float, default=1.0, help='Duration in seconds (default: 1.0)')
-    parser.add_argument('--host', default="10.40.49.47", help='Server host address')
-    parser.add_argument('--port', type=int, default=9999, help='Server port number')
+    parser = argparse.ArgumentParser(description='Spatial Audio Client')
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Test command
+    test_parser = subparsers.add_parser('test', help='Send test audio to spatial audio server')
+    test_parser.add_argument('--speaker', type=int, default=1, help='Speaker number (1-13, default: 1)')
+    test_parser.add_argument('--amplitude', type=float, default=0.1, help='Amplitude of the audio (default: 0.1)')
+    test_parser.add_argument('--duration', type=float, default=1.0, help='Duration in seconds (default: 1.0)')
+    test_parser.add_argument('--host', default="10.40.49.47", help='Server host address')
+    test_parser.add_argument('--port', type=int, default=9999, help='Server port number')
+    
+    # BlackHole command
+    blackhole_parser = subparsers.add_parser('blackhole', help='Start BlackHole audio relayer with Gradio interface')
+    blackhole_parser.add_argument('--mapping', default='alternating', choices=['alternating', 'stereo', 'mono'], help='Mapping scheme (default: alternating)')
+    
     args = parser.parse_args()
     
-    # Validate speaker number
-    if not 1 <= args.speaker <= 13:
-        raise ValueError(f"Speaker number must be between 1 and 13")
+    if args.command == 'test':
+        # Validate speaker number
+        if not 1 <= args.speaker <= 13:
+            raise ValueError(f"Speaker number must be between 1 and 13")
+        
+        sound_streamer = SoundNetworkStreamer(host=args.host, port=args.port)
+        
+        # Generate random audio data for the specified speaker
+        sound_file, actual_duration = generate_random_noise(
+            duration=args.duration,
+            sampling_rate=SAMPLING_RATE,
+            blocksize=BLOCKSIZE,
+            n_speakers=13,
+            speaker_id=args.speaker,
+            amplitude=args.amplitude
+        )
+        
+        print(f'Sending random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
+        print(f"Sound array shape: {sound_file.shape}")
+        print(f"Data stats - Min: {np.min(sound_file)}, Max: {np.max(sound_file)}, Mean: {np.mean(sound_file)}")
+        
+        # Send the audio data
+        sound_streamer.send(sound_file)
+        print("Data sent to server")
+        
+        print(f"Audio chunk sent. Keeping connection alive for {actual_duration:.2f} seconds...")
+        time.sleep(actual_duration)
+        
+        sound_streamer.close()
     
-    sound_streamer = SoundNetworkStreamer(host=args.host, port=args.port)
+    elif args.command == 'blackhole':
+        # Optional: Print available devices for verification
+        print("Available audio devices:")
+        print(sd.query_devices())
+
+        # Create BlackHole relayer
+        relayer = BlackHoleStereoRelayer(mapping_scheme=args.mapping)
+        
+        # Create and launch Gradio interface
+        interface = create_gradio_interface(relayer)
+        
+        # Start relayer in a separate thread
+        relayer_thread = threading.Thread(target=relayer.start, daemon=True)
+        relayer_thread.start()
+        
+        # Launch Gradio interface
+        interface.launch(share=False, server_name="127.0.0.1", server_port=7860)
     
-    # Generate random audio data for the specified speaker
-    sound_file, actual_duration = generate_random_noise(
-        duration=args.duration,
-        sampling_rate=SAMPLING_RATE,
-        blocksize=BLOCKSIZE,
-        n_speakers=13,
-        speaker_id=args.speaker,
-        amplitude=args.amplitude
-    )
-    
-    print(f'Sending random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
-    print(f"Sound array shape: {sound_file.shape}")
-    print(f"Data stats - Min: {np.min(sound_file)}, Max: {np.max(sound_file)}, Mean: {np.mean(sound_file)}")
-    
-    # Send the audio data
-    sound_streamer.send(sound_file)
-    print("Data sent to server")
-    
-    print(f"Audio chunk sent. Keeping connection alive for {actual_duration:.2f} seconds...")
-    time.sleep(actual_duration)
-    
-    sound_streamer.close()
+    else:
+        # No command provided - do nothing
+        print("No command specified. Use 'test' or 'blackhole' commands.")
+        parser.print_help()
