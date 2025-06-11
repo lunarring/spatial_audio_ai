@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import torch
-import soundfile as sf
-from diffusers import StableAudioPipeline
-import numpy as np
-import sys
-import lunar_tools as lt
-import torch
 import os
-from datetime import datetime
-sys.path.append("../tools")
-from tools import apply_fade_in_out, save_sound, clean_prompt_for_filename
 import random
+import sys
+from datetime import datetime
+
+import numpy as np
+import torch
+from diffusers import StableAudioPipeline
+
+from spatial_audio_ai.tools.tools import (
+    apply_fade_in_out, 
+    save_sound, 
+    clean_prompt_for_filename
+)
 
 
 class AudioDiffusion:
@@ -23,7 +25,10 @@ class AudioDiffusion:
         audio_end_in_s=10,
         fade_duration=0.2
     ):
-        self.pipe = StableAudioPipeline.from_pretrained("stabilityai/stable-audio-open-1.0", torch_dtype=torch.float16).to("cuda")
+        self.pipe = StableAudioPipeline.from_pretrained(
+            "stabilityai/stable-audio-open-1.0", 
+            torch_dtype=torch.float16
+        ).to("cuda")
         self.sampling_rate = 44100
         self.seed = None
         self.generator = None
@@ -52,10 +57,17 @@ class AudioDiffusion:
         self.audio_end_in_s = audio_end_in_s
 
     def get_embedding(self, prompt):
-        return self.pipe.encode_prompt(prompt, self.device, self.do_classifier_free_guidance)
+        return self.pipe.encode_prompt(
+            prompt, 
+            self.device, 
+            self.do_classifier_free_guidance
+        )
 
     def generate_sound(self, prompt_embeds, num_waveforms_per_prompt=1):
-        assert not isinstance(prompt_embeds, str), "prompt_embeds should not be a string. Use get_embedding method first."
+        assert not isinstance(prompt_embeds, str), (
+            "prompt_embeds should not be a string. "
+            "Use get_embedding method first."
+        )
         # prompt_embeds = self.get_embedding(prompt)
         audio = self.pipe(
             prompt_embeds=prompt_embeds,
@@ -70,16 +82,18 @@ class AudioDiffusion:
             output = output[:, 0]
         return output
 
-
     def blend_two_embeds(self, embed1, embed2, weight):
         if self.em is None:
             sys.path.append('../../rtd_comfy/sdxl_turbo')
             from embeddings_mixer import EmbeddingsMixer
             self.em = EmbeddingsMixer(self.pipe)
         assert 0 <= weight <= 1, "Weight should be between 0 and 1"
-        blended_embed = self.em.blend_two_embeds([embed1], [embed2], weight)[0]
+        blended_embed = self.em.blend_two_embeds(
+            [embed1], [embed2], weight
+        )[0]
         
         return blended_embed
+
 
 class SoundPoolGenerator:
     def __init__(self, audio_diffusion, base_dir='/home/lugo/audio/export'):
@@ -97,7 +111,6 @@ class SoundPoolGenerator:
     def set_max_duration_sound(self, max_duration):
         self.max_duration_sound = max_duration
 
-
     def generate(self, list_prompts, name_space, nmb_sounds):
         output_dir = f'{self.base_dir}/{name_space}'
         if not os.path.exists(output_dir):
@@ -105,7 +118,10 @@ class SoundPoolGenerator:
 
         for i in range(nmb_sounds):
             prompt = random.choice(list_prompts)
-            duration = random.uniform(self.min_duration_sound, self.max_duration_sound)
+            duration = random.uniform(
+                self.min_duration_sound, 
+                self.max_duration_sound
+            )
             seed = self.audio_diffusion.set_random_seed()
 
             self.audio_diffusion.set_seed(seed)
@@ -118,8 +134,8 @@ class SoundPoolGenerator:
             filename = clean_prompt_for_filename(prompt)
             file_path = os.path.join(output_dir, f"{filename}_{seed}.wav")
             save_sound(sound, file_path, self.audio_diffusion.sampling_rate)
-            print(f"Sound generation complete ({i+1}/{nmb_sounds}). File saved: '{filename}_{seed}.wav'")
-
+            print(f"Sound generation complete ({i+1}/{nmb_sounds}). "
+                  f"File saved: '{filename}_{seed}.wav'")
 
 
 # Examples
