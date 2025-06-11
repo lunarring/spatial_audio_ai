@@ -33,4 +33,9 @@ setup(
     dependency_links=[
         "git+https://github.com/lunarring/lunar_tools"
     ],
+    entry_points={
+        'console_scripts': [
+            'bh=spatial_audio_ai.tools.client:main',
+        ],
+    },
 ) 
