@@ -27,7 +27,8 @@ def handle_client(conn, addr, sound_system):
                     break # Exit the loop for this client
                     
                 if len(sound_array.shape) == 2:
-                    # logger.info(f"Sound array stats - Min: {np.min(sound_array)}, Max: {np.max(sound_array)}, Mean: {np.mean(sound_array)}, Std: {np.std(sound_array)}")
+                    logger.info(f"Received sound array with shape {sound_array.shape}")
+                    logger.info(f"Sound array stats - Min: {np.min(sound_array)}, Max: {np.max(sound_array)}, Mean: {np.mean(sound_array)}, Std: {np.std(sound_array)}")
                     sound_system.add_to_playback_queue(sound_array)
                 else:
                     logger.warning(f"Received array with unexpected shape {sound_array.shape} from {addr}. Disconnecting.")
@@ -55,7 +56,7 @@ class SoundServer:
         host="10.40.49.47", 
         port=9999, 
         log_level=logging.WARNING,
-        mock_mode=True
+        mock_mode=False
     ):
         self.host = host
         self.port = port
@@ -111,7 +112,14 @@ class SoundServer:
 
 def main():
     """Main function to run the server directly"""
-    server = SoundServer()
+    import argparse
+    parser = argparse.ArgumentParser(description='Start the spatial audio server')
+    parser.add_argument('--mock', action='store_true', help='Run in mock mode (no hardware required)')
+    parser.add_argument('--host', default="10.40.49.47", help='Host address')
+    parser.add_argument('--port', type=int, default=9999, help='Port number')
+    args = parser.parse_args()
+    
+    server = SoundServer(host=args.host, port=args.port, mock_mode=args.mock)
     server.start()
 
 

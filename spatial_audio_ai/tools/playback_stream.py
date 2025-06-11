@@ -12,6 +12,7 @@ from collections import deque
 import threading
 import logging
 import gradio as gr
+from spatial_audio_ai.tools.tools import generate_random_noise
 
 BLOCKSIZE = 1024
 CHUNKSIZE = BLOCKSIZE * 4
@@ -63,6 +64,9 @@ class SoundNetworkStreamer:
     def __enter__(self):
         self.socket.connect((self.host, self.port))
         self.socket_connected = True
+        # Set socket timeout to prevent hanging
+        if not self.simulate:
+            self.socket.settimeout(5.0)  # 5 second timeout
         if self.simulate:
             print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
         else:
@@ -82,8 +86,9 @@ class SoundNetworkStreamer:
         if data.ndim == 2:
             if data.shape[1] % BLOCKSIZE == 0:
                 try:
+                    print(f"Sending data with shape {data.shape} to the server...")
                     self.socket.sendall(data)
-                    # print(f"Sent data with shape {data.shape} to the server.")
+                    print(f"Successfully sent data with shape {data.shape} to the server.")
                 except Exception as e:
                     print(f"Failed to send data: {e}")
             else:
@@ -315,7 +320,7 @@ class BlackHoleStereoRelayer:
 
                     self.sound_streamer.send(processed_chunk)
 
-                    logging.info(f"Processed and sent a new audio chunk of shape {processed_chunk.shape}.")
+                    logging.debug(f"Processed and sent a new audio chunk of shape {processed_chunk.shape}.")
                 else:
                     logging.debug("No audio data available yet.")
                 time.sleep(0.01)
@@ -616,11 +621,37 @@ if __name__ == "__main__":
     sound_streamer = SoundNetworkStreamer()
     nmb_blocks = 200
     num_channels = 13
-    noise_array = np.random.uniform(low=-1.0, high=1.0, size=(int(BLOCKSIZE * nmb_blocks), num_channels))
-    noise_array = np.clip(noise_array, -1, 1)
-    noise_array *= 0.3
-    x = sound_streamer.send_and_receive(noise_array.T)
-    print(x)
-    while True:
-        time.sleep(1)
-    # sound_streamer.close()
+    
+    # Generate noise for all channels using the existing function
+    duration = (BLOCKSIZE * nmb_blocks) / SAMPLING_RATE
+    noise_array, actual_duration = generate_random_noise(
+        duration=duration,
+        sampling_rate=SAMPLING_RATE,
+        blocksize=BLOCKSIZE,
+        n_speakers=num_channels,
+        speaker_id=1,  # Use speaker 1 as base
+        amplitude=0.3
+    )
+    
+    # Add noise to all channels instead of just one
+    for channel in range(num_channels):
+        noise_array[channel, :] = np.random.randn(noise_array.shape[1]) * 0.3
+    
+    # Use send() instead of send_and_receive() since server doesn't respond
+    print(f"Sending initial noise array with shape: {noise_array.shape}")
+    print(f"Data stats - Min: {np.min(noise_array)}, Max: {np.max(noise_array)}, Mean: {np.mean(noise_array)}")
+    sound_streamer.send(noise_array)
+    print("Initial data sent to server")
+    
+    # Keep the connection alive and optionally send more data
+    try:
+        while True:
+            time.sleep(1)
+            print("Sending more noise data...")
+            # Generate new noise and send it
+            for channel in range(num_channels):
+                noise_array[channel, :] = np.random.randn(noise_array.shape[1]) * 0.3
+            sound_streamer.send(noise_array)
+    except KeyboardInterrupt:
+        print("Stopping...")
+        sound_streamer.close()
