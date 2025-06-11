@@ -3,6 +3,7 @@ import logging
 import time
 import socket
 import sys
+import numpy as np
 from spatial_audio_ai.tools.numpysocket import NumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
 # import threading # No longer needed for single client
