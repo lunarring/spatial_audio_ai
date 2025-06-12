@@ -191,9 +191,10 @@ if __name__ == "__main__":
 
     # pool based sound scape playback
     name_space = "ambient"
-    p_inject = 0.1
+    p_inject = 0.05
     box_size = 25
-    dir_scan = f'/home/lugo/git/spatial_audio_ai/soundpools/{name_space}/'
+    # dir_scan = f'/home/lugo/git/spatial_audio_ai/soundpools/{name_space}/'
+    dir_scan = '/home/lugo/audio/export/machine/'
 
     # Get a list of all .wav files in dir_scn
     wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
@@ -206,7 +207,7 @@ if __name__ == "__main__":
 
     spatializer = Spatializer()
     scene = Scene(spatializer)
-    scene.volume = 0.2
+    scene.volume = 0.3
     scene.register(so)
 
     sound_streamer = SoundNetworkStreamer()

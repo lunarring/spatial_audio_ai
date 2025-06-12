@@ -513,30 +513,93 @@ if __name__ == "__main__":
         force_mono=True  # Ensure mono for fade compatibility
     )
     
-    spg = SoundPoolGenerator(audio_diffusion_small)
+    spg = SoundPoolGenerator(
+        audio_diffusion_small,
+        directory="/home/lugo/audio/export/machine"
+    )
     spg.set_min_duration_sound(3)
     spg.set_max_duration_sound(8)
-    spg.set_directory('soundpools')
     
     # Test with ambient prompts for atmospheric sound generation
     list_prompts = [
-        'ambient synthesizer pad',
-        'warm analog drone',
-        'ethereal atmospheric texture',
-        'deep ambient bass pad',
-        'floating ambient soundscape',
-        'soft string pad',
-        'ambient reverb tail',
-        'dreamy atmospheric wash',
-        'subtle ambient texture',
-        'spacious pad sound',
-        'ambient noise texture',
-        'gentle ambient hum'
+        # Machine/Electronic sounds
+        'malfunctioning industrial machinery',
+        'glitchy circuit-bent electronics',
+        'metallic scraping with digital artifacts',
+        'corrupted data transmission noise',
+        'robotic voice distortion breakdown',
+        'quantum computer error sounds',
+        'mechanical insect grinding gears',
+        'broken electronic appliance feedback',
+        'alien machinery powering up',
+        'fractured digital signal processing',
+        'rusted mechanical clockwork malfunction',
+        'extraterrestrial communication static',
+        
+        # Natural environments
+        'gentle forest stream with birdsong',
+        'thunderstorm rolling across mountains',
+        'tropical rainforest at dawn',
+        'crashing ocean waves on rocky shore',
+        'wind howling through ancient canyon',
+        'crackling campfire under starry night',
+        'bamboo forest rustling in light breeze',
+        'distant whale songs underwater',
+        'ice cracking on frozen lake',
+        'heavy rainfall on tropical leaves',
+        
+        # Human/Organic
+        'bustling open-air market conversations',
+        'children playing in a playground',
+        'heart beating with deep breathing',
+        'choir singing harmonic overtones',
+        'distant crowd cheering at stadium',
+        'woman humming lullaby to baby',
+        'creaking wooden floorboards in old house',
+        'monks chanting in stone monastery',
+        'slow footsteps on gravel path',
+        'person whispering secrets',
+        
+        # Musical elements
+        '128 BPM tribal drumming with shakers',
+        'melancholic cello solo with reverb',
+        'analog synthesizer ambient pad',
+        'jazzy piano improvisation with brushed drums',
+        'orchestral string section swells',
+        'acoustic guitar fingerpicking pattern',
+        'slow ethereal harp arpeggios',
+        'distorted electric guitar feedback',
+        'minimalist piano with felt dampeners',
+        'tabla rhythms with tanpura drone',
+        
+        # Abstract/Experimental
+        'crystalline structures dissolving in acid',
+        'time-stretched glass breaking',
+        'memories fading into cosmic void',
+        'consciousness expanding beyond dimensions',
+        'neural pathways forming connections',
+        'quantum particles colliding in vacuum',
+        'ancient knowledge transmitted telepathically',
+        'dreams echoing through subconscious',
+        'cellular division amplified',
+        'thoughts materializing into sound waves',
+        
+        # Hybrid/Mixed
+        'forest creatures playing metallic instruments',
+        'digital rainstorm on cybernetic landscape',
+        'organic heartbeat with electronic processing',
+        'bird calls transformed through vocoder',
+        'underwater cave with resonant frequencies',
+        'human breath controlling synthesizer parameters',
+        'insect swarm with granular synthesis',
+        'stone temple with electromagnetic resonance',
+        'crackling fire with ambient string quartet',
+        'shamanic ritual with analog oscillators'
     ]
     
     print(f"Generating {len(list_prompts) * 2} sounds using "
           f"StableAudioOpenSmall...")
-    spg.generate(list_prompts, 50)
+    spg.generate(list_prompts, 100)
 
 
 # %% Play back the generated sound pool with spatial audio
