@@ -229,10 +229,10 @@ if __name__ == "__main__":
 
     # pool based sound scape playback
     if True:
-        name_space = "ocean"
-        p_inject = 0.4
+        name_space = "ambient"
+        p_inject = 0.1
         box_size = 25
-        dir_scan = f'/home/lugo/audio/export/{name_space}/'
+        dir_scan = f'/home/lugo/git/spatial_audio_ai/soundpools/{name_space}/'
 
 
         # Get a list of all .wav files in dir_scn

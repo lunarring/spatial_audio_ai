@@ -503,7 +503,7 @@ if __name__ == "__main__":
     
     print(f"Generating {len(list_prompts) * 2} sounds using "
           f"StableAudioOpenSmall...")
-    spg.generate(list_prompts, name_space='elements_small', nmb_sounds=16)
+    spg.generate(list_prompts, name_space='ambient', nmb_sounds=50)
 
 
 # %% Play back the generated sound pool with spatial audio
@@ -522,46 +522,3 @@ if __name__ == "__main__XXX":
     player.play(duration_minutes=3)
 
 
-# %% Combined: Generate and immediately play with spatial audio
-# Change line below to if __name__ == "__main__" to run it.
-if __name__ == "__main__XXX":
-    # First generate the sound pool
-    audio_diffusion_small = StableAudioOpenSmall(
-        steps=8, 
-        cfg_scale=1.0,
-        force_mono=True
-    )
-    
-    spg = SoundPoolGenerator(audio_diffusion_small)
-    spg.set_min_duration_sound(3)
-    spg.set_max_duration_sound(8)
-    spg.set_base_dir('soundpools')
-    
-    # Nature/environmental sounds for ambient spatial experience
-    nature_prompts = [
-        'gentle forest wind',
-        'distant thunder rumble',
-        'bird call in forest',
-        'rustling leaves',
-        'babbling brook water',
-        'subtle rain drops',
-        'wind through trees',
-        'cricket chirping',
-        'owl hoot in distance',
-        'soft grass movement'
-    ]
-    
-    print("Generating nature sound pool...")
-    spg.generate(nature_prompts, name_space='nature', nmb_sounds=12)
-    
-    # Now play it back with spatial audio
-    print("Starting spatial playback...")
-    player = SpatialSoundPoolPlayer(
-        name_space='nature',
-        base_dir='soundpools',
-        p_inject=0.25,  # Less frequent injection for calm ambience  
-        box_size=20.0,  # Larger area for natural spread
-        volume=0.15     # Quieter for ambience
-    )
-    
-    player.play(duration_minutes=10)
