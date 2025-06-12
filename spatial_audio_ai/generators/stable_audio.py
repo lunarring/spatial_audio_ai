@@ -17,7 +17,7 @@ from spatial_audio_ai.tools.tools import (
 )
 
 
-class AudioDiffusion:
+class StableAudioOpen:
     def __init__(
         self, 
         num_inference_steps=100, 
@@ -142,7 +142,7 @@ class SoundPoolGenerator:
 # %% just generate a short sound and save it. Change line below to if __name__ == "__main__" to run it. 
 if __name__ == "__main__":
     
-    audio_diffusion = AudioDiffusion(num_inference_steps=100)
+    audio_diffusion = StableAudioOpen(num_inference_steps=100)
     audio_diffusion.set_random_seed()
     audio_diffusion.set_audio_end_in_s(6)
     audio_diffusion.set_num_inference_steps(100)
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     
 # %% blend two prompts. Change line below to if __name__ == "__main__" to run it. This example requires you have the repo rtd_comfy
 if __name__ == "__main__XXX":
-    audio_diffusion = AudioDiffusion(num_inference_steps=100)
+    audio_diffusion = StableAudioOpen(num_inference_steps=100)
     prompt1 = "loud metal weird scratching"
     prompt2 = prompt1 + ", psychedelic, horrible, scary"
     weight = 0.5
@@ -172,7 +172,7 @@ if __name__ == "__main__XXX":
     
 # %% Generate a sound pool given many prompts. Saves wavs to disk. Change line below to if __name__ == "__main__" to run it. This example requires you have the repo rtd_comfy
 if __name__ == "__main__XXX":
-    audio_diffusion = AudioDiffusion(num_inference_steps=100)
+    audio_diffusion = StableAudioOpen(num_inference_steps=100)
     spg = SoundPoolGenerator(audio_diffusion)
     spg.set_min_duration_sound(3)
     spg.set_max_duration_sound(8)
