@@ -70,23 +70,57 @@ class SO_Playback(SoundObjectBase):
 
 
 class SO_PlaybackCircularMove(SO_Playback):
-    def __init__(self, sound: np.ndarray, position: np.ndarray | None = np.zeros(2, dtype=float), radius: float = 1.0, speed: float = 1.0):
+    def __init__(
+        self,
+        sound: np.ndarray,
+        position: np.ndarray | None = np.zeros(2, dtype=float),
+        radius: float = 1.0,
+        speed: float = 1.0,
+        initial_angle: float = 0.0,
+        direction: int = 1,
+        center: np.ndarray = np.zeros(2, dtype=float),
+        loop: bool = True
+    ):
+        """
+        Circular moving sound object.
+        Args:
+            sound: The audio data.
+            position: Initial position (ignored, calculated from angle).
+            radius: Circle radius.
+            speed: Angular speed (radians/sec).
+            initial_angle: Starting angle (radians).
+            direction: 1 for CCW, -1 for CW.
+            center: Center of the circle (np.ndarray shape (2,)).
+            loop: If True, loop sound when it ends, else terminate.
+        """
         super().__init__(sound, position)
         self.radius = radius
         self.speed = speed
+        self.initial_angle = initial_angle
+        self.direction = direction
+        self.center = center
+        self.loop = loop
         self.start_time = time.time()
 
     def update_position(self):
-        """
-        Update the position of the sound object to move in a circular path.
-        The position is updated based on the elapsed time since the start.
-        """
         elapsed_time = time.time() - self.start_time
-        angle = self.speed * elapsed_time
-        x = self.radius * np.cos(angle)
-        y = self.radius * np.sin(angle)
+        angle = self.initial_angle + self.direction * self.speed * elapsed_time
+        x = self.center[0] + self.radius * np.cos(angle)
+        y = self.center[1] + self.radius * np.sin(angle)
         self.set_position(np.array([x, y]))
 
+    def query(self, tick: int) -> SoundMessage:
+        self.update_position()
+        if self.first_tick is None:
+            self.first_tick = tick
+        start = (tick - self.first_tick) * CHUNKSIZE
+        if self.loop:
+            start = start % self.sound.size
+        sound = self.sound[start:start+CHUNKSIZE]
+        if len(sound) == 0:
+            raise SoundObjectTerminatedException
+        sound = np.pad(sound, (0, CHUNKSIZE - len(sound)), 'constant')
+        return SoundMessage(sound=sound, position=self.position)
 
 
 class Spatializer:
@@ -202,8 +236,18 @@ if __name__ == "__main__":
     # Set initial circular movement parameters
     init_radius = np.random.uniform(2, box_size/2)
     init_speed = np.random.uniform(0.2, 1.0)
-    so = SO_PlaybackCircularMove(sound, radius=init_radius, speed=init_speed)
-    print(f"Initial circular moving sound: {wav_files[0]} at radius: {init_radius:.2f}, speed: {init_speed:.2f}")
+    init_angle = np.random.uniform(0, 2*np.pi)
+    init_direction = random.choice([-1, 1])
+    so = SO_PlaybackCircularMove(
+        sound,
+        radius=init_radius,
+        speed=init_speed,
+        initial_angle=init_angle,
+        direction=init_direction,
+        center=np.zeros(2, dtype=float),
+        loop=True
+    )
+    print(f"Initial circular moving sound: {wav_files[0]} at radius: {init_radius:.2f}, speed: {init_speed:.2f}, angle: {init_angle:.2f}, direction: {init_direction}")
 
     spatializer = Spatializer()
     scene = Scene(spatializer)
@@ -217,11 +261,21 @@ if __name__ == "__main__":
             wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
             random_file = random.choice(wav_files)
             sound = sf.read(f"{dir_scan}{random_file}")[0]
-            # Set random radius and speed for each injected sound
+            # Set random radius, speed, angle, direction for each injected sound
             radius = np.random.uniform(2, box_size/2)
             speed = np.random.uniform(0.2, 1.0)
-            scene.register(SO_PlaybackCircularMove(sound, radius=radius, speed=speed))
-            print(f"Injected circular moving sound: {random_file} at radius: {radius:.2f}, speed: {speed:.2f}")
+            angle = np.random.uniform(0, 2*np.pi)
+            direction = random.choice([-1, 1])
+            scene.register(SO_PlaybackCircularMove(
+                sound,
+                radius=radius,
+                speed=speed,
+                initial_angle=angle,
+                direction=direction,
+                center=np.zeros(2, dtype=float),
+                loop=True
+            ))
+            print(f"Injected circular moving sound: {random_file} at radius: {radius:.2f}, speed: {speed:.2f}, angle: {angle:.2f}, direction: {direction}")
         
         chunk = np.clip(chunk, -1, 1)
         sound_streamer.send(chunk)

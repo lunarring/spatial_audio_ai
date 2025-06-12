@@ -35,7 +35,8 @@ def random_dir(base="/tmp/soundpool_gradio_"):
     return dir_tmp
 
 # Threaded sound generation with progress callback
-def generate_sounds(prompts, n_sounds, min_duration, max_duration, progress=gr.Progress(track_tqdm=True)):
+def generate_sounds(prompts, n_sounds, min_duration, max_duration,
+                   progress=gr.Progress(track_tqdm=True)):
     dir_tmp = random_dir()
     audio_diffusion = StableAudioOpenSmall(steps=8, cfg_scale=1.0, force_mono=True)
     spg = SoundPoolGenerator(audio_diffusion, directory=dir_tmp)
@@ -64,6 +65,11 @@ playback_stop_flag = False
 
 def play_spatial_soundpool(
     dir_path, p_inject, box_size, volume, duration_minutes,
+    use_circular, circular_radius_min, circular_radius_max,
+    circular_speed_min, circular_speed_max,
+    circular_angle_min, circular_angle_max,
+    circular_direction, circular_center_x, circular_center_y,
+    circular_loop,
     progress=gr.Progress(track_tqdm=True)
 ):
     global playback_thread, playback_stop_flag
@@ -75,7 +81,14 @@ def play_spatial_soundpool(
         base_dir=base_dir,
         p_inject=p_inject,
         box_size=box_size,
-        volume=volume
+        volume=volume,
+        use_circular=use_circular,
+        circular_radius_range=(circular_radius_min, circular_radius_max),
+        circular_speed_range=(circular_speed_min, circular_speed_max),
+        circular_angle_range=(circular_angle_min, circular_angle_max),
+        circular_direction_choices=[circular_direction],
+        circular_center=np.array([circular_center_x, circular_center_y], dtype=float),
+        circular_loop=circular_loop
     )
 
     def playback():
@@ -148,14 +161,18 @@ with gr.Blocks() as demo:
         n_sounds = gr.Number(
             label="Number of sounds to generate", value=10, precision=0
         )
-        min_duration = gr.Slider(2, 20, value=3, step=0.1, label="Minimum Sound Duration (seconds)")
-        max_duration = gr.Slider(2, 20, value=8, step=0.1, label="Maximum Sound Duration (seconds)")
+        min_duration = gr.Slider(2, 20, value=3, step=0.1,
+                                 label="Minimum Sound Duration (seconds)")
+        max_duration = gr.Slider(2, 20, value=8, step=0.1,
+                                 label="Maximum Sound Duration (seconds)")
         generate_btn = gr.Button("Generate Sounds")
         output_dir = gr.Textbox(label="Output Directory", interactive=False)
         gen_progress = gr.Textbox(label="Status", interactive=False)
 
-        def _generate(prompts, n_sounds, min_duration, max_duration, progress=gr.Progress(track_tqdm=True)):
-            dir_tmp = generate_sounds(prompts, n_sounds, min_duration, max_duration, progress)
+        def _generate(prompts, n_sounds, min_duration, max_duration,
+                      progress=gr.Progress(track_tqdm=True)):
+            dir_tmp = generate_sounds(prompts, n_sounds, min_duration,
+                                      max_duration, progress)
             return dir_tmp, f"Generated {n_sounds} sounds in {dir_tmp}"
 
         generate_btn.click(
@@ -179,13 +196,53 @@ with gr.Blocks() as demo:
         duration_minutes = gr.Number(
             label="Playback Duration (minutes)", value=2, precision=0
         )
+        use_circular = gr.Checkbox(
+            label="Use Circular Moving Sound Objects", value=False
+        )
+        circular_radius_min = gr.Slider(
+            0.5, 30, value=2, step=0.1, label="Circular Radius Min"
+        )
+        circular_radius_max = gr.Slider(
+            0.5, 30, value=10, step=0.1, label="Circular Radius Max"
+        )
+        circular_speed_min = gr.Slider(
+            0.01, 5, value=0.2, step=0.01, label="Circular Speed Min (rad/s)"
+        )
+        circular_speed_max = gr.Slider(
+            0.01, 5, value=1.0, step=0.01, label="Circular Speed Max (rad/s)"
+        )
+        circular_angle_min = gr.Slider(
+            0, 6.283, value=0, step=0.01, label="Circular Angle Min (rad)"
+        )
+        circular_angle_max = gr.Slider(
+            0, 6.283, value=6.283, step=0.01, label="Circular Angle Max (rad)"
+        )
+        circular_direction = gr.Dropdown(
+            [-1, 1], value=1, label="Circular Direction (1=CCW, -1=CW)"
+        )
+        circular_center_x = gr.Slider(
+            -30, 30, value=0, step=0.1, label="Circular Center X"
+        )
+        circular_center_y = gr.Slider(
+            -30, 30, value=0, step=0.1, label="Circular Center Y"
+        )
+        circular_loop = gr.Checkbox(
+            label="Loop Circular Sound", value=True
+        )
         play_btn = gr.Button("Start Spatial Playback")
         stop_btn = gr.Button("Stop Playback")
         playback_status = gr.Textbox(label="Playback Status", interactive=False)
 
         play_btn.click(
             play_spatial_soundpool,
-            inputs=[dir_input, p_inject, box_size, volume, duration_minutes],
+            inputs=[
+                dir_input, p_inject, box_size, volume, duration_minutes,
+                use_circular, circular_radius_min, circular_radius_max,
+                circular_speed_min, circular_speed_max,
+                circular_angle_min, circular_angle_max,
+                circular_direction, circular_center_x, circular_center_y,
+                circular_loop
+            ],
             outputs=playback_status
         )
         stop_btn.click(stop_playback, outputs=playback_status)

@@ -295,121 +295,158 @@ class SpatialSoundPoolPlayer:
         base_dir='/home/lugo/audio/export',
         p_inject=0.3,
         box_size=15.0,
-        volume=0.2
+        volume=0.2,
+        use_circular=False,
+        circular_radius_range=(2.0, 10.0),
+        circular_speed_range=(0.2, 1.0),
+        circular_angle_range=(0.0, 2*np.pi),
+        circular_direction_choices=(-1, 1),
+        circular_center=np.zeros(2, dtype=float),
+        circular_loop=True
     ):
         from spatial_audio_ai.tools.spatializer import (
             Spatializer, Scene
         )
         from spatial_audio_ai.tools.client import SoundNetworkStreamer
-        
         self.name_space = name_space
         self.base_dir = base_dir
         self.p_inject = p_inject  # Probability of injecting new sound each frame
         self.box_size = box_size  # Size of spatial area
         self.volume = volume
-        
+        self.use_circular = use_circular
+        self.circular_radius_range = circular_radius_range
+        self.circular_speed_range = circular_speed_range
+        self.circular_angle_range = circular_angle_range
+        self.circular_direction_choices = circular_direction_choices
+        self.circular_center = circular_center
+        self.circular_loop = circular_loop
         # Directory containing the sound pool
         self.dir_scan = f'{base_dir}/{name_space}/'
-        
         # Initialize spatial audio components
         self.spatializer = Spatializer()
         self.scene = Scene(self.spatializer)
         self.scene.volume = volume
         self.sound_streamer = SoundNetworkStreamer()
-        
         # Check if sound pool exists
         if not os.path.exists(self.dir_scan):
             raise FileNotFoundError(
                 f"Sound pool directory not found: {self.dir_scan}"
             )
-            
         # Get initial list of wav files
         self.wav_files = [
             f for f in os.listdir(self.dir_scan) 
             if f.endswith('.wav')
         ]
-        
         if not self.wav_files:
             raise FileNotFoundError(
                 f"No .wav files found in {self.dir_scan}"
             )
-            
         print(f"Found {len(self.wav_files)} sounds in pool '{name_space}'")
 
     def start_initial_sound(self):
         """Start playback with one initial sound"""
         import soundfile as sf
-        from spatial_audio_ai.tools.spatializer import SO_Playback
-        
-        # Load and register the first sound
+        from spatial_audio_ai.tools.spatializer import SO_Playback, SO_PlaybackCircularMove
         sound = sf.read(f"{self.dir_scan}{self.wav_files[0]}")[0]
-        so = SO_Playback(sound, position=np.array([0.0, 0.0]))
+        if self.use_circular:
+            radius = np.random.uniform(*self.circular_radius_range)
+            speed = np.random.uniform(*self.circular_speed_range)
+            angle = np.random.uniform(*self.circular_angle_range)
+            direction = random.choice(self.circular_direction_choices)
+            center = self.circular_center
+            loop = self.circular_loop
+            so = SO_PlaybackCircularMove(
+                sound,
+                radius=radius,
+                speed=speed,
+                initial_angle=angle,
+                direction=direction,
+                center=center,
+                loop=loop
+            )
+            print(
+                f"Started with: {self.wav_files[0]} (circular, "
+                f"radius={radius:.2f}, speed={speed:.2f}, "
+                f"angle={angle:.2f}, "
+                f"direction={direction})"
+            )
+        else:
+            so = SO_Playback(sound, position=np.array([0.0, 0.0]))
+            print(f"Started with: {self.wav_files[0]}")
         self.scene.register(so)
-        print(f"Started with: {self.wav_files[0]}")
 
     def play(self, duration_minutes=5):
         """
         Play the spatial sound pool for specified duration.
-        
         Args:
             duration_minutes: How long to play (default 5 minutes)
         """
         import soundfile as sf
         import time
         from spatial_audio_ai.tools.spatializer import (
-            SO_Playback, CHUNKSIZE, SAMPLING_RATE
+            SO_Playback, SO_PlaybackCircularMove, CHUNKSIZE, SAMPLING_RATE
         )
-        
         self.start_initial_sound()
-        
         start_time = time.time()
         duration_seconds = duration_minutes * 60
-        
         print(f"Starting spatial playback for {duration_minutes} minutes...")
         print(f"Injection probability: {self.p_inject}")
         print(f"Spatial area: {self.box_size}x{self.box_size}")
-        
         try:
             for j, chunk in enumerate(self.scene.run()):
-                # Check if we should inject a new sound
                 if np.random.rand() < self.p_inject:
-                    # Refresh file list in case new sounds were added
                     self.wav_files = [
                         f for f in os.listdir(self.dir_scan) 
                         if f.endswith('.wav')
                     ]
-                    
-                    # Pick random sound and position
                     random_file = random.choice(self.wav_files)
                     sound = sf.read(f"{self.dir_scan}{random_file}")[0]
-                    position = np.random.uniform(
-                        -self.box_size, self.box_size, size=2
-                    )
-                    
-                    # Register new sound object
-                    self.scene.register(SO_Playback(sound, position=position))
-                    print(f"Injected: {random_file} at position: "
-                          f"({position[0]:.1f}, {position[1]:.1f})")
-                
-                # Send audio chunk
+                    if self.use_circular:
+                        radius = np.random.uniform(*self.circular_radius_range)
+                        speed = np.random.uniform(*self.circular_speed_range)
+                        angle = np.random.uniform(*self.circular_angle_range)
+                        direction = random.choice(self.circular_direction_choices)
+                        center = self.circular_center
+                        loop = self.circular_loop
+                        so = SO_PlaybackCircularMove(
+                            sound,
+                            radius=radius,
+                            speed=speed,
+                            initial_angle=angle,
+                            direction=direction,
+                            center=center,
+                            loop=loop
+                        )
+                        print(
+                            f"Injected: {random_file} (circular, "
+                            f"radius={radius:.2f}, speed={speed:.2f}, "
+                            f"angle={angle:.2f}, "
+                            f"direction={direction})"
+                        )
+                    else:
+                        position = np.random.uniform(
+                            -self.box_size, self.box_size, size=2
+                        )
+                        so = SO_Playback(
+                            sound,
+                            position=position
+                        )
+                        print(
+                            f"Injected: {random_file} at position: "
+                            f"({position[0]:.1f}, {position[1]:.1f})"
+                        )
+                    self.scene.register(so)
                 chunk = np.clip(chunk, -1, 1)
                 self.sound_streamer.send(chunk)
-                
-                # Timing
                 time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
-                
-                # Check if duration exceeded
                 elapsed = time.time() - start_time
                 if elapsed > duration_seconds:
                     print(f"Playback completed after {elapsed:.1f} seconds")
                     break
-                    
-                # Status update every ~10 seconds
-                if j % 430 == 0:  # Approximate frames per 10 seconds
+                if j % 430 == 0:
                     active_sounds = len(self.scene.sound_objects)
                     print(f"Time: {elapsed:.1f}s | "
                           f"Active sounds: {active_sounds}")
-                    
         except KeyboardInterrupt:
             print("\nPlayback stopped by user")
         except Exception as e:
