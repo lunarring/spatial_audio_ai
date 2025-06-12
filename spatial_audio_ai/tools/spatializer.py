@@ -195,14 +195,14 @@ if __name__ == "__main__":
     box_size = 25
     dir_scan = f'/home/lugo/git/spatial_audio_ai/soundpools/{name_space}/'
 
-
     # Get a list of all .wav files in dir_scn
     wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
     sound = sf.read(f"{dir_scan}{wav_files[0]}")[0]
-    
-    # sound = apply_reverb(sound, SAMPLING_RATE, reverb_decay=0.3)
-
-    so = SO_Playback(sound)
+    # Set initial circular movement parameters
+    init_radius = np.random.uniform(2, box_size/2)
+    init_speed = np.random.uniform(0.2, 1.0)
+    so = SO_PlaybackCircularMove(sound, radius=init_radius, speed=init_speed)
+    print(f"Initial circular moving sound: {wav_files[0]} at radius: {init_radius:.2f}, speed: {init_speed:.2f}")
 
     spatializer = Spatializer()
     scene = Scene(spatializer)
@@ -216,9 +216,11 @@ if __name__ == "__main__":
             wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
             random_file = random.choice(wav_files)
             sound = sf.read(f"{dir_scan}{random_file}")[0]
-            position = np.random.uniform(-box_size, box_size, size=2)
-            scene.register(SO_Playback(sound, position=position))
-            print(f"Injected sound: {random_file} at position: {position}")
+            # Set random radius and speed for each injected sound
+            radius = np.random.uniform(2, box_size/2)
+            speed = np.random.uniform(0.2, 1.0)
+            scene.register(SO_PlaybackCircularMove(sound, radius=radius, speed=speed))
+            print(f"Injected circular moving sound: {random_file} at radius: {radius:.2f}, speed: {speed:.2f}")
         
         chunk = np.clip(chunk, -1, 1)
         sound_streamer.send(chunk)

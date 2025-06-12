@@ -207,14 +207,14 @@ class StableAudioOpenSmall:
 
 
 class SoundPoolGenerator:
-    def __init__(self, audio_diffusion, base_dir='/home/lugo/audio/export'):
+    def __init__(self, audio_diffusion, directory='/home/lugo/audio/export'):
         self.audio_diffusion = audio_diffusion
-        self.base_dir = base_dir
+        self.directory = directory
         self.min_duration_sound = 4
         self.max_duration_sound = 8
 
-    def set_base_dir(self, base_dir):
-        self.base_dir = base_dir
+    def set_directory(self, directory):
+        self.directory = directory
 
     def set_min_duration_sound(self, min_duration):
         self.min_duration_sound = min_duration
@@ -222,8 +222,8 @@ class SoundPoolGenerator:
     def set_max_duration_sound(self, max_duration):
         self.max_duration_sound = max_duration
 
-    def generate(self, list_prompts, name_space, nmb_sounds):
-        output_dir = f'{self.base_dir}/{name_space}'
+    def generate(self, list_prompts, nmb_sounds):
+        output_dir = self.directory
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -483,7 +483,7 @@ if __name__ == "__main__":
     spg = SoundPoolGenerator(audio_diffusion_small)
     spg.set_min_duration_sound(3)
     spg.set_max_duration_sound(8)
-    spg.set_base_dir('soundpools')
+    spg.set_directory('soundpools')
     
     # Test with ambient prompts for atmospheric sound generation
     list_prompts = [
@@ -503,7 +503,7 @@ if __name__ == "__main__":
     
     print(f"Generating {len(list_prompts) * 2} sounds using "
           f"StableAudioOpenSmall...")
-    spg.generate(list_prompts, name_space='ambient', nmb_sounds=50)
+    spg.generate(list_prompts, 50)
 
 
 # %% Play back the generated sound pool with spatial audio
