@@ -4,6 +4,7 @@
 import os
 import random
 import sys
+import abc
 
 import numpy as np
 import torch
@@ -24,7 +25,30 @@ from spatial_audio_ai.tools.tools import (
 )
 
 
-class StableAudioOpen:
+class AudioDiffusion(abc.ABC):
+    @abc.abstractmethod
+    def set_seed(self, seed=420):
+        pass
+
+    @abc.abstractmethod
+    def set_random_seed(self):
+        pass
+
+    @abc.abstractmethod
+    def set_audio_end_in_s(self, audio_end_in_s):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def sampling_rate(self):
+        pass
+
+    @abc.abstractmethod
+    def generate_sound(self, *args, **kwargs):
+        pass
+
+
+class StableAudioOpen(AudioDiffusion):
     def __init__(
         self, 
         num_inference_steps=100, 
@@ -36,7 +60,7 @@ class StableAudioOpen:
             "stabilityai/stable-audio-open-1.0", 
             torch_dtype=torch.float16
         ).to("cuda")
-        self.sampling_rate = 44100
+        self._sampling_rate = 44100
         self.seed = None
         self.generator = None
         self.device = self.pipe._execution_device
@@ -47,6 +71,10 @@ class StableAudioOpen:
         self.fade_duration = fade_duration
         self.em = None
         self.set_seed()
+
+    @property
+    def sampling_rate(self):
+        return self._sampling_rate
 
     def set_seed(self, seed=420):
         self.seed = seed
@@ -59,9 +87,6 @@ class StableAudioOpen:
 
     def set_num_inference_steps(self, num_inference_steps):
         self.num_inference_steps = num_inference_steps
-
-    def set_audio_end_in_s(self, audio_end_in_s):
-        self.audio_end_in_s = audio_end_in_s
 
     def get_embedding(self, prompt):
         return self.pipe.encode_prompt(
@@ -102,7 +127,7 @@ class StableAudioOpen:
         return blended_embed
 
 
-class StableAudioOpenSmall:
+class StableAudioOpenSmall(AudioDiffusion):
     def __init__(
         self,
         steps=8,
@@ -125,7 +150,7 @@ class StableAudioOpenSmall:
         )
         self.model = self.model.to(self.device)
         
-        self.sampling_rate = self.model_config["sample_rate"]
+        self._sampling_rate = self.model_config["sample_rate"]
         self.sample_size = self.model_config["sample_size"]
         self.steps = steps
         self.cfg_scale = cfg_scale
@@ -134,6 +159,10 @@ class StableAudioOpenSmall:
         self.audio_end_in_s = audio_end_in_s
         self.fade_duration = fade_duration
         self.seed = None
+
+    @property
+    def sampling_rate(self):
+        return self._sampling_rate
 
     def set_seed(self, seed=420):
         self.seed = seed
@@ -398,6 +427,10 @@ class SpatialSoundPoolPlayer:
         """Set overall volume"""
         self.volume = volume
         self.scene.volume = volume
+
+
+# For backward compatibility
+StableAudioDiffusion = AudioDiffusion
 
 
 # Examples
