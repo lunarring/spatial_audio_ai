@@ -164,12 +164,18 @@ class StableAudioOpenSmall:
             "seconds_total": self.audio_end_in_s
         }]
         
+        # Calculate sample_size based on desired duration and sample rate
+        calculated_sample_size = int(self.audio_end_in_s * self.sampling_rate)
+        print(f"Target duration: {self.audio_end_in_s}s, "
+              f"Sample rate: {self.sampling_rate}Hz, "
+              f"Calculated samples: {calculated_sample_size}")
+        
         output = generate_diffusion_cond(
             self.model,
             steps=self.steps,
             cfg_scale=self.cfg_scale,
             conditioning=conditioning,
-            sample_size=self.sample_size,
+            sample_size=calculated_sample_size,
             sampler_type=self.sampler_type,
             device=self.device
         )
@@ -191,6 +197,11 @@ class StableAudioOpenSmall:
             output = output[0]  # Remove channel dimension for mono output
         elif not self.force_mono:
             output = output.T  # Transpose for stereo (time, channels)
+        
+        # Print actual duration for verification
+        actual_duration = len(output) / self.sampling_rate
+        print(f"Generated audio length: {len(output)} samples, "
+              f"Actual duration: {actual_duration:.2f}s")
             
         return output
 
@@ -255,7 +266,7 @@ if __name__ == "__main__":
         cfg_scale=1.0,
         sampler_type="pingpong",
         force_mono=True,  # Use mono for compatibility with fade function
-        audio_end_in_s=11
+        audio_end_in_s=20
     )
     
     # Set a random seed for reproducibility
