@@ -256,6 +256,150 @@ class SoundPoolGenerator:
                   f"File saved: '{filename}_{seed}.wav'")
 
 
+class SpatialSoundPoolPlayer:
+    """
+    Play back generated sound pools with spatial audio positioning.
+    """
+    def __init__(
+        self, 
+        name_space, 
+        base_dir='/home/lugo/audio/export',
+        p_inject=0.3,
+        box_size=15.0,
+        volume=0.2
+    ):
+        from spatial_audio_ai.tools.spatializer import (
+            Spatializer, Scene
+        )
+        from spatial_audio_ai.tools.client import SoundNetworkStreamer
+        
+        self.name_space = name_space
+        self.base_dir = base_dir
+        self.p_inject = p_inject  # Probability of injecting new sound each frame
+        self.box_size = box_size  # Size of spatial area
+        self.volume = volume
+        
+        # Directory containing the sound pool
+        self.dir_scan = f'{base_dir}/{name_space}/'
+        
+        # Initialize spatial audio components
+        self.spatializer = Spatializer()
+        self.scene = Scene(self.spatializer)
+        self.scene.volume = volume
+        self.sound_streamer = SoundNetworkStreamer()
+        
+        # Check if sound pool exists
+        if not os.path.exists(self.dir_scan):
+            raise FileNotFoundError(
+                f"Sound pool directory not found: {self.dir_scan}"
+            )
+            
+        # Get initial list of wav files
+        self.wav_files = [
+            f for f in os.listdir(self.dir_scan) 
+            if f.endswith('.wav')
+        ]
+        
+        if not self.wav_files:
+            raise FileNotFoundError(
+                f"No .wav files found in {self.dir_scan}"
+            )
+            
+        print(f"Found {len(self.wav_files)} sounds in pool '{name_space}'")
+
+    def start_initial_sound(self):
+        """Start playback with one initial sound"""
+        import soundfile as sf
+        from spatial_audio_ai.tools.spatializer import SO_Playback
+        
+        # Load and register the first sound
+        sound = sf.read(f"{self.dir_scan}{self.wav_files[0]}")[0]
+        so = SO_Playback(sound, position=np.array([0.0, 0.0]))
+        self.scene.register(so)
+        print(f"Started with: {self.wav_files[0]}")
+
+    def play(self, duration_minutes=5):
+        """
+        Play the spatial sound pool for specified duration.
+        
+        Args:
+            duration_minutes: How long to play (default 5 minutes)
+        """
+        import soundfile as sf
+        import time
+        from spatial_audio_ai.tools.spatializer import (
+            SO_Playback, CHUNKSIZE, SAMPLING_RATE
+        )
+        
+        self.start_initial_sound()
+        
+        start_time = time.time()
+        duration_seconds = duration_minutes * 60
+        
+        print(f"Starting spatial playback for {duration_minutes} minutes...")
+        print(f"Injection probability: {self.p_inject}")
+        print(f"Spatial area: {self.box_size}x{self.box_size}")
+        
+        try:
+            for j, chunk in enumerate(self.scene.run()):
+                # Check if we should inject a new sound
+                if np.random.rand() < self.p_inject:
+                    # Refresh file list in case new sounds were added
+                    self.wav_files = [
+                        f for f in os.listdir(self.dir_scan) 
+                        if f.endswith('.wav')
+                    ]
+                    
+                    # Pick random sound and position
+                    random_file = random.choice(self.wav_files)
+                    sound = sf.read(f"{self.dir_scan}{random_file}")[0]
+                    position = np.random.uniform(
+                        -self.box_size, self.box_size, size=2
+                    )
+                    
+                    # Register new sound object
+                    self.scene.register(SO_Playback(sound, position=position))
+                    print(f"Injected: {random_file} at position: "
+                          f"({position[0]:.1f}, {position[1]:.1f})")
+                
+                # Send audio chunk
+                chunk = np.clip(chunk, -1, 1)
+                self.sound_streamer.send(chunk)
+                
+                # Timing
+                time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+                
+                # Check if duration exceeded
+                elapsed = time.time() - start_time
+                if elapsed > duration_seconds:
+                    print(f"Playback completed after {elapsed:.1f} seconds")
+                    break
+                    
+                # Status update every ~10 seconds
+                if j % 430 == 0:  # Approximate frames per 10 seconds
+                    active_sounds = len(self.scene.sound_objects)
+                    print(f"Time: {elapsed:.1f}s | "
+                          f"Active sounds: {active_sounds}")
+                    
+        except KeyboardInterrupt:
+            print("\nPlayback stopped by user")
+        except Exception as e:
+            print(f"Playback error: {e}")
+
+    def set_injection_probability(self, p_inject):
+        """Set probability of injecting new sounds"""
+        self.p_inject = p_inject
+
+    def set_spatial_area(self, box_size):
+        """Set the size of the spatial positioning area"""
+        self.box_size = box_size
+
+    def set_volume(self, volume):
+        """Set overall volume"""
+        self.volume = volume
+        self.scene.volume = volume
+
+
 # Examples
 # %% make me here an example of how to use the StableAudioOpenSmall class
 # Change line below to if __name__ == "__main__" to run it.
@@ -314,8 +458,6 @@ if __name__ == "__main__XXX":
     save_sound(sound, "blended.wav", audio_diffusion.sampling_rate)
 
 
-
-
 # %% Example using StableAudioOpenSmall
 # Change line below to if __name__ == "__main__" to run it.
 if __name__ == "__main__XXX":
@@ -328,14 +470,98 @@ if __name__ == "__main__XXX":
     save_sound(sound, "tech_house.wav", audio_diffusion_small.sampling_rate)
 
 
-# %% Generate a sound pool given many prompts. Saves wavs to disk. 
-# Change line below to if __name__ == "__main__" to run it. 
-# This example requires you have the repo rtd_comfy
+# %% Generate a sound pool given many prompts using StableAudioOpenSmall
+# Change line below to if __name__ == "__main__" to run it.
 if __name__ == "__main__":
-    audio_diffusion = StableAudioOpen(num_inference_steps=100)
-    spg = SoundPoolGenerator(audio_diffusion)
+    # Use the smaller, faster model for bulk generation
+    audio_diffusion_small = StableAudioOpenSmall(
+        steps=8, 
+        cfg_scale=1.0,
+        force_mono=True  # Ensure mono for fade compatibility
+    )
+    
+    spg = SoundPoolGenerator(audio_diffusion_small)
     spg.set_min_duration_sound(3)
     spg.set_max_duration_sound(8)
     spg.set_base_dir('soundpools')
-    list_prompts = ['wind', 'water', 'fire', 'earth']
-    spg.generate(list_prompts, name_space='elements', nmb_sounds=100)
+    
+    # Test with ambient prompts for atmospheric sound generation
+    list_prompts = [
+        'ambient synthesizer pad',
+        'warm analog drone',
+        'ethereal atmospheric texture',
+        'deep ambient bass pad',
+        'floating ambient soundscape',
+        'soft string pad',
+        'ambient reverb tail',
+        'dreamy atmospheric wash',
+        'subtle ambient texture',
+        'spacious pad sound',
+        'ambient noise texture',
+        'gentle ambient hum'
+    ]
+    
+    print(f"Generating {len(list_prompts) * 2} sounds using "
+          f"StableAudioOpenSmall...")
+    spg.generate(list_prompts, name_space='elements_small', nmb_sounds=16)
+
+
+# %% Play back the generated sound pool with spatial audio
+# Change line below to if __name__ == "__main__" to run it.
+if __name__ == "__main__XXX":
+    # Create spatial sound pool player for the generated sounds
+    player = SpatialSoundPoolPlayer(
+        name_space='elements_small',
+        base_dir='soundpools',
+        p_inject=0.3,  # 30% chance to inject new sound each frame
+        box_size=15.0,  # 15x15 unit spatial area
+        volume=0.2
+    )
+    
+    # Play for 3 minutes
+    player.play(duration_minutes=3)
+
+
+# %% Combined: Generate and immediately play with spatial audio
+# Change line below to if __name__ == "__main__" to run it.
+if __name__ == "__main__XXX":
+    # First generate the sound pool
+    audio_diffusion_small = StableAudioOpenSmall(
+        steps=8, 
+        cfg_scale=1.0,
+        force_mono=True
+    )
+    
+    spg = SoundPoolGenerator(audio_diffusion_small)
+    spg.set_min_duration_sound(3)
+    spg.set_max_duration_sound(8)
+    spg.set_base_dir('soundpools')
+    
+    # Nature/environmental sounds for ambient spatial experience
+    nature_prompts = [
+        'gentle forest wind',
+        'distant thunder rumble',
+        'bird call in forest',
+        'rustling leaves',
+        'babbling brook water',
+        'subtle rain drops',
+        'wind through trees',
+        'cricket chirping',
+        'owl hoot in distance',
+        'soft grass movement'
+    ]
+    
+    print("Generating nature sound pool...")
+    spg.generate(nature_prompts, name_space='nature', nmb_sounds=12)
+    
+    # Now play it back with spatial audio
+    print("Starting spatial playback...")
+    player = SpatialSoundPoolPlayer(
+        name_space='nature',
+        base_dir='soundpools',
+        p_inject=0.25,  # Less frequent injection for calm ambience  
+        box_size=20.0,  # Larger area for natural spread
+        volume=0.15     # Quieter for ambience
+    )
+    
+    player.play(duration_minutes=10)
