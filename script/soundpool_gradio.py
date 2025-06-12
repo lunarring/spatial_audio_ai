@@ -35,12 +35,12 @@ def random_dir(base="/tmp/soundpool_gradio_"):
     return dir_tmp
 
 # Threaded sound generation with progress callback
-def generate_sounds(prompts, n_sounds, progress=gr.Progress(track_tqdm=True)):
+def generate_sounds(prompts, n_sounds, min_duration, max_duration, progress=gr.Progress(track_tqdm=True)):
     dir_tmp = random_dir()
     audio_diffusion = StableAudioOpenSmall(steps=8, cfg_scale=1.0, force_mono=True)
     spg = SoundPoolGenerator(audio_diffusion, directory=dir_tmp)
-    spg.set_min_duration_sound(3)
-    spg.set_max_duration_sound(8)
+    spg.set_min_duration_sound(min_duration)
+    spg.set_max_duration_sound(max_duration)
     prompts = [p.strip() for p in prompts.split('\n') if p.strip()]
     n_sounds = int(n_sounds)
     for i in progress.tqdm(range(n_sounds), desc="Generating sounds"):
@@ -148,16 +148,18 @@ with gr.Blocks() as demo:
         n_sounds = gr.Number(
             label="Number of sounds to generate", value=10, precision=0
         )
+        min_duration = gr.Slider(2, 20, value=3, step=0.1, label="Minimum Sound Duration (seconds)")
+        max_duration = gr.Slider(2, 20, value=8, step=0.1, label="Maximum Sound Duration (seconds)")
         generate_btn = gr.Button("Generate Sounds")
         output_dir = gr.Textbox(label="Output Directory", interactive=False)
         gen_progress = gr.Textbox(label="Status", interactive=False)
 
-        def _generate(prompts, n_sounds, progress=gr.Progress(track_tqdm=True)):
-            dir_tmp = generate_sounds(prompts, n_sounds, progress)
+        def _generate(prompts, n_sounds, min_duration, max_duration, progress=gr.Progress(track_tqdm=True)):
+            dir_tmp = generate_sounds(prompts, n_sounds, min_duration, max_duration, progress)
             return dir_tmp, f"Generated {n_sounds} sounds in {dir_tmp}"
 
         generate_btn.click(
-            _generate, inputs=[prompts_box, n_sounds],
+            _generate, inputs=[prompts_box, n_sounds, min_duration, max_duration],
             outputs=[output_dir, gen_progress]
         )
 
