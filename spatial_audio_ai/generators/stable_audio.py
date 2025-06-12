@@ -259,7 +259,7 @@ class SoundPoolGenerator:
 # Examples
 # %% make me here an example of how to use the StableAudioOpenSmall class
 # Change line below to if __name__ == "__main__" to run it.
-if __name__ == "__main__":
+if __name__ == "__main__XXX":
     # Initialize StableAudioOpenSmall with custom parameters
     audio_diffusion_small = StableAudioOpenSmall(
         steps=8,
@@ -314,17 +314,6 @@ if __name__ == "__main__XXX":
     save_sound(sound, "blended.wav", audio_diffusion.sampling_rate)
 
 
-# %% Generate a sound pool given many prompts. Saves wavs to disk. 
-# Change line below to if __name__ == "__main__" to run it. 
-# This example requires you have the repo rtd_comfy
-if __name__ == "__main__XXX":
-    audio_diffusion = StableAudioOpen(num_inference_steps=100)
-    spg = SoundPoolGenerator(audio_diffusion)
-    spg.set_min_duration_sound(3)
-    spg.set_max_duration_sound(8)
-    spg.set_base_dir('soundpools')
-    list_prompts = ['wind', 'water', 'fire', 'earth']
-    spg.generate(list_prompts, name_space='elements', nmb_sounds=100)
 
 
 # %% Example using StableAudioOpenSmall
@@ -339,4 +328,14 @@ if __name__ == "__main__XXX":
     save_sound(sound, "tech_house.wav", audio_diffusion_small.sampling_rate)
 
 
-
+# %% Generate a sound pool given many prompts. Saves wavs to disk. 
+# Change line below to if __name__ == "__main__" to run it. 
+# This example requires you have the repo rtd_comfy
+if __name__ == "__main__":
+    audio_diffusion = StableAudioOpen(num_inference_steps=100)
+    spg = SoundPoolGenerator(audio_diffusion)
+    spg.set_min_duration_sound(3)
+    spg.set_max_duration_sound(8)
+    spg.set_base_dir('soundpools')
+    list_prompts = ['wind', 'water', 'fire', 'earth']
+    spg.generate(list_prompts, name_space='elements', nmb_sounds=100)
