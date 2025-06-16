@@ -13,10 +13,9 @@ import threading
 import logging
 import gradio as gr
 from spatial_audio_ai.tools.tools import generate_random_noise
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
 
-BLOCKSIZE = 1024
 CHUNKSIZE = BLOCKSIZE * 4
-SAMPLING_RATE = 44100
 
 sd.default.blocksize = BLOCKSIZE
 
@@ -120,7 +119,7 @@ class BlackHoleStereoRelayer:
     """
 
     def __init__(self,
-                 sample_rate=44100,
+                 sample_rate=None,
                  channels=2,
                  chunk_size=1024 * 10,
                  device_name="BlackHole 64ch",
@@ -143,6 +142,8 @@ class BlackHoleStereoRelayer:
         logging.basicConfig(level=logging.WARNING,
                             format='%(asctime)s - %(levelname)s - %(message)s')
 
+        if sample_rate is None:
+            sample_rate = SAMPLING_RATE
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size

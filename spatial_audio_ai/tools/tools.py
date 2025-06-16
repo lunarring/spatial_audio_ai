@@ -11,7 +11,10 @@ import random
 from scipy import signal
 
 
-def apply_fade_in_out(sound, sampling_rate=44100, ramp_duration=0.4):
+def apply_fade_in_out(sound, sampling_rate=None, ramp_duration=0.4):
+    if sampling_rate is None:
+        from spatial_audio_ai.config import SAMPLING_RATE
+        sampling_rate = SAMPLING_RATE
     """
     Apply a fade-in and fade-out effect to the given sound.
 
@@ -39,7 +42,10 @@ def apply_fade_in_out(sound, sampling_rate=44100, ramp_duration=0.4):
     
     return sound
 
-def generate_sine_tone(frequency, duration, sampling_rate=44100):
+def generate_sine_tone(frequency, duration, sampling_rate=None):
+    if sampling_rate is None:
+        from spatial_audio_ai.config import SAMPLING_RATE
+        sampling_rate = SAMPLING_RATE
     """
     Generate a sine wave tone.
 
@@ -71,7 +77,10 @@ def clean_prompt_for_filename(prompt):
     filename = filename.replace('.', "")
     return filename
 
-def save_sound(sound: np.ndarray, file_path, sampling_rate=44100):
+def save_sound(sound: np.ndarray, file_path, sampling_rate=None):
+    if sampling_rate is None:
+        from spatial_audio_ai.config import SAMPLING_RATE
+        sampling_rate = SAMPLING_RATE
     """
     Save a sound to a file.
 
@@ -114,7 +123,10 @@ def save_sound_multichannel(list_sounds, file_path):
 
 
 
-def apply_reverb(waveform, sampling_rate=44100, decay=0.5):
+def apply_reverb(waveform, sampling_rate=None, decay=0.5):
+    if sampling_rate is None:
+        from spatial_audio_ai.config import SAMPLING_RATE
+        sampling_rate = SAMPLING_RATE
     """
     Apply a simple reverb effect by convolving the waveform with a generated impulse response.
     

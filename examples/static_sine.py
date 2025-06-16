@@ -9,7 +9,8 @@ from spatial_audio_ai import (
 from spatial_audio_ai.tools.spatializer import CHUNKSIZE, SAMPLING_RATE
 
 # Generate a simple sine wave
-sample_rate = 44100  # Standard sample rate
+from spatial_audio_ai import get_sample_rate
+sample_rate = get_sample_rate()  # Use configured sample rate
 duration = 5  # Duration in seconds
 frequency = 440  # A4 note frequency in Hz
 

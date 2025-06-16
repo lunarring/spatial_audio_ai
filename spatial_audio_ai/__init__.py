@@ -15,6 +15,11 @@ from spatial_audio_ai.tools.spatializer import (
 from spatial_audio_ai.tools.client import (
     SoundNetworkStreamer
 )
+from spatial_audio_ai.config import (
+    get_sample_rate,
+    set_sample_rate,
+    SAMPLING_RATE
+)
 
 # Make commonly used items available at package level
 __all__ = [
@@ -23,4 +28,7 @@ __all__ = [
     'Scene',
     'SO_Playback',
     'SoundNetworkStreamer',
+    'get_sample_rate',
+    'set_sample_rate',
+    'SAMPLING_RATE',
 ] 

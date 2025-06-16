@@ -9,15 +9,11 @@ import numpy as np
 import sounddevice as sd
 import argparse
 from spatial_audio_ai.tools.tools import generate_random_noise
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS
 
-BLOCKSIZE = 1024
 sd.default.blocksize = BLOCKSIZE
 
-SAMPLING_RATE = 44100
-
 ## Configuration
-# The number of speakers, numbered consecutively
-N_SPEAKERS = 13
 
 # Speaker id to soundcard cluster stereo_channel_idx mapping
 # usually maps 1 to 1, but can be different; defined in the Dante Cntroller

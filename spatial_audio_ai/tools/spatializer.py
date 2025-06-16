@@ -2,19 +2,17 @@ import numpy as np
 import sounddevice as sd
 from dataclasses import dataclass
 from typing import List, Tuple
-sd.default.blocksize = 1024
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import soundfile as sf
 import time
 from spatial_audio_ai.tools.numpysocket import NumpySocket
 import os
 import random
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
 
-BLOCKSIZE = 1024
+sd.default.blocksize = BLOCKSIZE
 CHUNKSIZE = BLOCKSIZE*4
-SAMPLING_RATE = 44100
 
 @dataclass
 class SoundMessage:

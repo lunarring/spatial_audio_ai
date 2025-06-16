@@ -24,7 +24,8 @@ class AudioDiffusion:
         fade_duration=0.2
     ):
         self.pipe = StableAudioPipeline.from_pretrained("stabilityai/stable-audio-open-1.0", torch_dtype=torch.float16).to("cuda")
-        self.sampling_rate = 44100
+        from spatial_audio_ai.config import SAMPLING_RATE
+        self.sampling_rate = SAMPLING_RATE
         self.seed = None
         self.generator = None
         self.device = self.pipe._execution_device

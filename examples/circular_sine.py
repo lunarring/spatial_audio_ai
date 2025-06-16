@@ -13,7 +13,8 @@ RADIUS = 5.0  # Radius of the circular path (in units used by the spatializer)
 PERIOD = 10.0  # Period of rotation in seconds (adjustable parameter)
 
 # Generate a simple sine wave
-sample_rate = 44100  # Standard sample rate
+from spatial_audio_ai import get_sample_rate
+sample_rate = get_sample_rate()  # Use configured sample rate
 # Duration in seconds - enough time to complete multiple rotations
 duration = 30  
 frequency = 440  # A4 note frequency in Hz
