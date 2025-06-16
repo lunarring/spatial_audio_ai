@@ -6,3 +6,4 @@ scipy
 sounddevice
 soundfile
 torch
+gradio

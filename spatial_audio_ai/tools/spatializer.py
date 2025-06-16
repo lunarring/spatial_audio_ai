@@ -68,23 +68,57 @@ class SO_Playback(SoundObjectBase):
 
 
 class SO_PlaybackCircularMove(SO_Playback):
-    def __init__(self, sound: np.ndarray, position: np.ndarray | None = np.zeros(2, dtype=float), radius: float = 1.0, speed: float = 1.0):
+    def __init__(
+        self,
+        sound: np.ndarray,
+        position: np.ndarray | None = np.zeros(2, dtype=float),
+        radius: float = 1.0,
+        speed: float = 1.0,
+        initial_angle: float = 0.0,
+        direction: int = 1,
+        center: np.ndarray = np.zeros(2, dtype=float),
+        loop: bool = True
+    ):
+        """
+        Circular moving sound object.
+        Args:
+            sound: The audio data.
+            position: Initial position (ignored, calculated from angle).
+            radius: Circle radius.
+            speed: Angular speed (radians/sec).
+            initial_angle: Starting angle (radians).
+            direction: 1 for CCW, -1 for CW.
+            center: Center of the circle (np.ndarray shape (2,)).
+            loop: If True, loop sound when it ends, else terminate.
+        """
         super().__init__(sound, position)
         self.radius = radius
         self.speed = speed
+        self.initial_angle = initial_angle
+        self.direction = direction
+        self.center = center
+        self.loop = loop
         self.start_time = time.time()
 
     def update_position(self):
-        """
-        Update the position of the sound object to move in a circular path.
-        The position is updated based on the elapsed time since the start.
-        """
         elapsed_time = time.time() - self.start_time
-        angle = self.speed * elapsed_time
-        x = self.radius * np.cos(angle)
-        y = self.radius * np.sin(angle)
+        angle = self.initial_angle + self.direction * self.speed * elapsed_time
+        x = self.center[0] + self.radius * np.cos(angle)
+        y = self.center[1] + self.radius * np.sin(angle)
         self.set_position(np.array([x, y]))
 
+    def query(self, tick: int) -> SoundMessage:
+        self.update_position()
+        if self.first_tick is None:
+            self.first_tick = tick
+        start = (tick - self.first_tick) * CHUNKSIZE
+        if self.loop:
+            start = start % self.sound.size
+        sound = self.sound[start:start+CHUNKSIZE]
+        if len(sound) == 0:
+            raise SoundObjectTerminatedException
+        sound = np.pad(sound, (0, CHUNKSIZE - len(sound)), 'constant')
+        return SoundMessage(sound=sound, position=self.position)
 
 
 class Spatializer:
@@ -93,18 +127,18 @@ class Spatializer:
                  process_function=None
     ):
         self.speaker_positions = np.asarray([
-            (4.80, 4.7), # 1
-            (3.0, 4.8),  # 2
-            (-0.2, 4.8), # 3
-            (-2.8, 4.8), # 4
-            (-4.8, 4.7), # 5
-            (-4.8, 0.7), # 6
-            (-4.8, -4.6), # 7
-            (-2.7, -4.6), # 8
-            (-0.1, -4.6), # 9
-            (2.3, -4.6), # 10
-            (4.8, -4.6), # 11
-            (4.8, 0.7), # 12
+            (-4.80, 4.7), # 1
+            (-3.0, 4.8),  # 2
+            (-0.0, 4.8), # 3
+            (3.0, 4.8), # 4
+            (4.8, 4.7), # 5
+            (4.8, 0.4), # 6
+            (4.8, -4.6), # 7
+            (2.7, -4.6), # 8
+            (-0.0, -4.6), # 9
+            (-2.7, -4.6), # 10
+            (-4.8, -4.6), # 11
+            (-4.8, 0.4), # 12
         ])
         self.subwoofer_last_channel_auto_mode = subwoofer_last_channel_auto_mode
         self.attenuation_scaler = 1.0
@@ -186,80 +220,64 @@ class Scene:
         
                 
 if __name__ == "__main__":
-    # simple placement of two objects
-    if False:
-
-        
-        # sound_a = generate_sine_tone(400, 6)
-        # sound_b = generate_sine_tone(600, 6)
-    
-        # so_a = SO_Playback(sf.read("/home/lugo/Downloads/song.wav")[0][:,0])
-        
-        sound_a = sf.read("/home/lugo/audio/export/talking1.wav")[0]
-        sound_b = sf.read("/home/lugo/audio/export/talking2.wav")[0]
-    
-        so_a = SO_Playback(sound_a)
-        so_b = SO_Playback(sound_b)
-    
-        spatializer = Spatializer()
-        scene = Scene(spatializer)
-        scene.volume = 0.2
-        scene.register(so_a)
-        scene.register(so_b)
-    
-        sound_streamer = SoundNetworkStreamer()
-        list_chunks = []
-        for j, chunk in enumerate(scene.run()):
-            
-            chunk = np.clip(chunk, -1, 1)
-            sound_streamer.send(chunk)
-            
-            list_chunks.append(chunk)
-            if j == 5:
-                scene.register(SO_Playback(sound_a, position=np.array([-3., -3.1])))
-            if j == 8:
-                scene.register(SO_Playback(sound_b, position=np.array([3., 3.])))
-            print(f"sent chunk {j}")
-            time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
-        
-    
-
 
     # pool based sound scape playback
-    if True:
-        name_space = "ocean"
-        p_inject = 0.4
-        box_size = 25
-        dir_scan = f'/home/lugo/audio/export/{name_space}/'
+    name_space = "ambient"
+    p_inject = 0.05
+    box_size = 25
+    # dir_scan = f'/home/lugo/git/spatial_audio_ai/soundpools/{name_space}/'
+    dir_scan = '/home/lugo/audio/export/machine/'
 
+    # Get a list of all .wav files in dir_scn
+    wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
+    sound = sf.read(f"{dir_scan}{wav_files[0]}")[0]
+    # Set initial circular movement parameters
+    init_radius = np.random.uniform(2, box_size/2)
+    init_speed = np.random.uniform(0.2, 1.0)
+    init_angle = np.random.uniform(0, 2*np.pi)
+    init_direction = random.choice([-1, 1])
+    so = SO_PlaybackCircularMove(
+        sound,
+        radius=init_radius,
+        speed=init_speed,
+        initial_angle=init_angle,
+        direction=init_direction,
+        center=np.zeros(2, dtype=float),
+        loop=True
+    )
+    print(f"Initial circular moving sound: {wav_files[0]} at radius: {init_radius:.2f}, speed: {init_speed:.2f}, angle: {init_angle:.2f}, direction: {init_direction}")
 
-        # Get a list of all .wav files in dir_scn
-        wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
-        sound = sf.read(f"{dir_scan}{wav_files[0]}")[0]
+    spatializer = Spatializer()
+    scene = Scene(spatializer)
+    scene.volume = 0.3
+    scene.register(so)
+
+    sound_streamer = SoundNetworkStreamer()
+    for j, chunk in enumerate(scene.run()):
+
+        if np.random.rand() < p_inject:
+            wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
+            random_file = random.choice(wav_files)
+            sound = sf.read(f"{dir_scan}{random_file}")[0]
+            # Set random radius, speed, angle, direction for each injected sound
+            radius = np.random.uniform(2, box_size/2)
+            speed = np.random.uniform(0.2, 1.0)
+            angle = np.random.uniform(0, 2*np.pi)
+            direction = random.choice([-1, 1])
+            scene.register(SO_PlaybackCircularMove(
+                sound,
+                radius=radius,
+                speed=speed,
+                initial_angle=angle,
+                direction=direction,
+                center=np.zeros(2, dtype=float),
+                loop=True
+            ))
+            print(f"Injected circular moving sound: {random_file} at radius: {radius:.2f}, speed: {speed:.2f}, angle: {angle:.2f}, direction: {direction}")
         
-        # sound = apply_reverb(sound, SAMPLING_RATE, reverb_decay=0.3)
-    
-        so = SO_Playback(sound)
-    
-        spatializer = Spatializer()
-        scene = Scene(spatializer)
-        scene.volume = 0.2
-        scene.register(so)
-    
-        sound_streamer = SoundNetworkStreamer()
-        for j, chunk in enumerate(scene.run()):
-
-            if np.random.rand() < p_inject:
-                wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
-                random_file = random.choice(wav_files)
-                sound = sf.read(f"{dir_scan}{random_file}")[0]
-                position = np.random.uniform(-box_size, box_size, size=2)
-                scene.register(SO_Playback(sound, position=position))
-                print(f"Injected sound: {random_file} at position: {position}")
-            
-            chunk = np.clip(chunk, -1, 1)
-            sound_streamer.send(chunk)
-            time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+        chunk = np.clip(chunk, -1, 1)
+        sound_streamer.send(chunk)
+        time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
         
     
     #%%#
@@ -312,3 +330,38 @@ if __name__ == "__main__":
             else:
                 time.sleep(CHUNKSIZE/SAMPLING_RATE)
     
+    # simple placement of two objects
+    if False:
+
+        
+        # sound_a = generate_sine_tone(400, 6)
+        # sound_b = generate_sine_tone(600, 6)
+    
+        # so_a = SO_Playback(sf.read("/home/lugo/Downloads/song.wav")[0][:,0])
+        
+        sound_a = sf.read("/home/lugo/audio/export/talking1.wav")[0]
+        sound_b = sf.read("/home/lugo/audio/export/talking2.wav")[0]
+    
+        so_a = SO_Playback(sound_a)
+        so_b = SO_Playback(sound_b)
+    
+        spatializer = Spatializer()
+        scene = Scene(spatializer)
+        scene.volume = 0.2
+        scene.register(so_a)
+        scene.register(so_b)
+    
+        sound_streamer = SoundNetworkStreamer()
+        list_chunks = []
+        for j, chunk in enumerate(scene.run()):
+            
+            chunk = np.clip(chunk, -1, 1)
+            sound_streamer.send(chunk)
+            
+            list_chunks.append(chunk)
+            if j == 5:
+                scene.register(SO_Playback(sound_a, position=np.array([-3., -3.1])))
+            if j == 8:
+                scene.register(SO_Playback(sound_b, position=np.array([3., 3.])))
+            print(f"sent chunk {j}")
+            time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)

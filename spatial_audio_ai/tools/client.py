@@ -595,26 +595,8 @@ def create_gradio_interface(relayer):
     return interface
 
 
-if __name__ == "__main_x_":
-    # Optional: Print available devices for verification
-    print("Available audio devices:")
-    print(sd.query_devices())
-
-    # Example usage:
-    mapping_scheme = 'alternating'
-    relayer = BlackHoleStereoRelayer(mapping_scheme=mapping_scheme)
-    
-    # Create and launch Gradio interface
-    interface = create_gradio_interface(relayer)
-    
-    # Start relayer in a separate thread
-    relayer_thread = threading.Thread(target=relayer.start, daemon=True)
-    relayer_thread.start()
-    
-    # Launch Gradio interface
-    interface.launch(share=False, server_name="127.0.0.1", server_port=7860)
-
-if __name__ == "__main__":
+def main():
+    """Main entry point for the bh command"""
     import argparse
     from spatial_audio_ai.tools.tools import generate_random_noise
     
@@ -634,6 +616,11 @@ if __name__ == "__main__":
     blackhole_parser.add_argument('--mapping', default='alternating', choices=['alternating', 'stereo', 'mono'], help='Mapping scheme (default: alternating)')
     
     args = parser.parse_args()
+    
+    # Default to blackhole command if no command is specified
+    if args.command is None:
+        args.command = 'blackhole'
+        args.mapping = 'alternating'
     
     if args.command == 'test':
         # Validate speaker number
@@ -687,3 +674,26 @@ if __name__ == "__main__":
         # No command provided - do nothing
         print("No command specified. Use 'test' or 'blackhole' commands.")
         parser.print_help()
+
+
+if __name__ == "__main_x_":
+    # Optional: Print available devices for verification
+    print("Available audio devices:")
+    print(sd.query_devices())
+
+    # Example usage:
+    mapping_scheme = 'alternating'
+    relayer = BlackHoleStereoRelayer(mapping_scheme=mapping_scheme)
+    
+    # Create and launch Gradio interface
+    interface = create_gradio_interface(relayer)
+    
+    # Start relayer in a separate thread
+    relayer_thread = threading.Thread(target=relayer.start, daemon=True)
+    relayer_thread.start()
+    
+    # Launch Gradio interface
+    interface.launch(share=False, server_name="127.0.0.1", server_port=7860)
+
+if __name__ == "__main__":
+    main()

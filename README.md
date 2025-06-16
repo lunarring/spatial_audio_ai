@@ -12,6 +12,7 @@ This repository contains several Python modules that form a toolkit for audio pr
 - **Spatializer**: Spatial sound control for multi-speaker systems.
 - **Tools**: Helper functions for audio manipulation, effects like fade-in and fade-out.
 - **Stable Audio Diffusion**: Generate creative audio clips using text prompts.
+- **BlackHole Audio Client**: Command-line tool for streaming system audio through BlackHole with spatial mapping.
 
 ## Installation
 
@@ -28,6 +29,46 @@ git clone https://github.com/lunarring/spatial_audio_ai.git
 cd spatial_audio_ai
 pip install -e .
 ```
+
+## Command Line Tool
+
+After installation, you can use the `bh` command to start the BlackHole audio client:
+
+### Quick Start
+
+```bash
+# Start the BlackHole audio client with default settings
+bh
+```
+
+This will:
+- Start capturing audio from BlackHole 64ch device
+- Launch a Gradio web interface at http://127.0.0.1:7860
+- Begin streaming audio with spatial mapping to your configured server
+
+### Advanced Usage
+
+```bash
+# Start with specific mapping scheme
+bh blackhole --mapping stereo
+
+# Send test audio to a specific speaker
+bh test --speaker 5 --amplitude 0.2 --duration 2.0
+
+# Connect to a different server
+bh test --host 192.168.1.100 --port 8888
+```
+
+### Available Commands
+
+- `bh`: Start the BlackHole audio relayer with Gradio interface
+  - `--mapping`: Choose mapping scheme (`alternating`, `stereo`, `mono`)
+- `bh test`: Send test audio to the spatial audio server
+  - `--speaker`: Speaker number (1-13, default: 1)
+  - `--amplitude`: Audio amplitude (default: 0.1)
+  - `--duration`: Duration in seconds (default: 1.0)
+  - `--host`: Server host address (default: 10.40.49.47)
+  - `--port`: Server port number (default: 9999)
 
 ## Usage
 
