@@ -124,10 +124,14 @@ def prepare_for_streaming(audio_data: np.ndarray,
         if 0 <= speaker_idx < n_speakers:
             mono_signal = (left + right) / 2
             multi_channel_audio[speaker_idx] = mono_signal
-            print(f"Prepared audio for streaming: {multi_channel_audio.shape} "
-                  f"routed to speaker {speaker_id}")
+            print(
+                f"Prepared audio for streaming: {multi_channel_audio.shape} "
+                f"routed to speaker {speaker_id}"
+            )
         else:
-            raise ValueError(f"Speaker ID must be between 1 and {n_speakers}")
+            raise ValueError(
+                f"Speaker ID must be between 1 and {n_speakers}"
+            )
     
     elif mapping_scheme == 'alternating':
         # Alternating mapping: even channels left, odd channels right
@@ -138,8 +142,10 @@ def prepare_for_streaming(audio_data: np.ndarray,
                 multi_channel_audio[i] = right
         # 13th channel is sum of left and right
         multi_channel_audio[12] = (left + right) / 2
-        print(f"Prepared audio for streaming: {multi_channel_audio.shape} "
-              f"with alternating mapping")
+        print(
+            f"Prepared audio for streaming: {multi_channel_audio.shape} "
+            f"with alternating mapping"
+        )
     
     elif mapping_scheme == 'stereo':
         # Stereo (grouped) mapping: first 6 channels are left, next 6 channels are right
@@ -149,8 +155,10 @@ def prepare_for_streaming(audio_data: np.ndarray,
             multi_channel_audio[i] = right
         # 13th channel is sum of left and right
         multi_channel_audio[12] = (left + right) / 2
-        print(f"Prepared audio for streaming: {multi_channel_audio.shape} "
-              f"with stereo mapping")
+        print(
+            f"Prepared audio for streaming: {multi_channel_audio.shape} "
+            f"with stereo mapping"
+        )
     
     elif mapping_scheme == 'mono':
         # Mono mapping: averaged left+right signal to all channels
@@ -159,12 +167,16 @@ def prepare_for_streaming(audio_data: np.ndarray,
             multi_channel_audio[i] = mono_signal
         # 13th channel is also the mono signal
         multi_channel_audio[12] = mono_signal
-        print(f"Prepared audio for streaming: {multi_channel_audio.shape} "
-              f"with mono mapping")
+        print(
+            f"Prepared audio for streaming: {multi_channel_audio.shape} "
+            f"with mono mapping"
+        )
     
     else:
-        raise ValueError(f"Invalid mapping scheme: {mapping_scheme}. "
-                        f"Must be 'alternating', 'stereo', 'mono', or 'single'")
+        raise ValueError(
+            f"Invalid mapping scheme: {mapping_scheme}. "
+            f"Must be 'alternating', 'stereo', 'mono', or 'single'"
+        )
     
     return multi_channel_audio
 
@@ -217,33 +229,39 @@ def stream_audio_file(file_path: str,
     audio_data = audio_data * volume
     
     # Prepare for streaming
-    stream_data = prepare_for_streaming(audio_data, 
-                                       mapping_scheme=mapping_scheme,
-                                       speaker_id=speaker_id)
+    stream_data = prepare_for_streaming(
+        audio_data,
+        mapping_scheme=mapping_scheme,
+        speaker_id=speaker_id
+    )
     
     # Calculate duration
     duration = len(audio_data) / sample_rate
-    
-    # Stream the audio
+
+    # Stream the audio in chunks
     print(f"Connecting to server at {host}:{port}")
     streamer = SoundNetworkStreamer(host=host, port=port)
     try:
         if mapping_scheme == 'single':
-            print(f"Streaming {file_path} to speaker {speaker_id} "
-                  f"(duration: {duration:.2f}s)")
+            print(
+                f"Streaming {file_path} to speaker {speaker_id} "
+                f"(duration: {duration:.2f}s)"
+            )
         else:
-            print(f"Streaming {file_path} to all speakers with {mapping_scheme} mapping "
-                  f"(duration: {duration:.2f}s)")
-        
-        streamer.send(stream_data)
-        
-        print(f"Audio sent. Keeping connection alive for {duration:.2f} seconds...")
-        time.sleep(duration + 0.5)  # Small buffer
-        
+            print(
+                f"Streaming {file_path} to all speakers with "
+                f"{mapping_scheme} mapping (duration: {duration:.2f}s)"
+            )
+
+        n_speakers, total_samples = stream_data.shape
+        n_blocks = total_samples // BLOCKSIZE
+        for i in range(n_blocks):
+            chunk = stream_data[:, i*BLOCKSIZE:(i+1)*BLOCKSIZE]
+            streamer.send(chunk)
+            time.sleep(BLOCKSIZE / sample_rate)
+        print("Audio sent. Streaming completed.")
     finally:
         streamer.close()
-        
-    print("Streaming completed.")
 
 
 def main():
