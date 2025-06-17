@@ -141,6 +141,7 @@ class BlackHoleStereoRelayer:
         # Configure logging
         logging.basicConfig(level=logging.WARNING,
                             format='%(asctime)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
 
         if sample_rate is None:
             sample_rate = SAMPLING_RATE
