@@ -30,11 +30,13 @@ cd spatial_audio_ai
 pip install -e .
 ```
 
-## Command Line Tool
+## Command Line Tools
 
-After installation, you can use the `bh` command to start the BlackHole audio client:
+After installation, you can use the following command-line tools:
 
-### Quick Start
+### BlackHole Audio Client (`bh`)
+
+Stream system audio through BlackHole with spatial mapping:
 
 ```bash
 # Start the BlackHole audio client with default settings
@@ -46,10 +48,31 @@ This will:
 - Launch a Gradio web interface at http://127.0.0.1:7860
 - Begin streaming audio with spatial mapping to your configured server
 
+### Audio File Playback (`playback`)
+
+Stream audio files (.wav, .mp3) over the network:
+
+```bash
+# Stream audio file to all speakers with alternating mapping
+playback song.wav
+
+# Stream with stereo mapping
+playback song.mp3 --mapping stereo
+
+# Stream to a specific speaker only
+playback song.wav --mapping single --speaker 5
+
+# Stream at 50% volume
+playback song.wav --volume 0.5
+
+# Stream to a different host
+playback song.wav --host 192.168.1.100
+```
+
 ### Advanced Usage
 
 ```bash
-# Start with specific mapping scheme
+# BlackHole client with specific mapping
 bh blackhole --mapping stereo
 
 # Send test audio to a specific speaker
@@ -61,6 +84,7 @@ bh test --host 192.168.1.100 --port 8888
 
 ### Available Commands
 
+#### `bh` - BlackHole Audio Client
 - `bh`: Start the BlackHole audio relayer with Gradio interface
   - `--mapping`: Choose mapping scheme (`alternating`, `stereo`, `mono`)
 - `bh test`: Send test audio to the spatial audio server
@@ -69,6 +93,21 @@ bh test --host 192.168.1.100 --port 8888
   - `--duration`: Duration in seconds (default: 1.0)
   - `--host`: Server host address (default: 10.40.49.47)
   - `--port`: Server port number (default: 9999)
+
+#### `playback` - Audio File Streaming
+- `playback <file>`: Stream audio file to spatial audio system
+  - `--mapping, -m`: Mapping scheme (`alternating`, `stereo`, `mono`, `single`)
+  - `--speaker, -s`: Speaker number (1-13, required for single mapping)
+  - `--volume, -v`: Volume level (0.0 to 2.0, default: 0.1)
+  - `--host`: Server host address (default: 10.40.49.47)
+  - `--port`: Server port (default: 9999)
+  - `--no-resample`: Do not resample audio to system rate
+
+#### Mapping Schemes
+- **alternating**: Even channels get left audio, odd channels get right audio
+- **stereo**: First 6 channels get left audio, next 6 get right audio
+- **mono**: All channels get averaged left+right signal
+- **single**: Route audio to one specific speaker only
 
 ## Usage
 
@@ -94,9 +133,17 @@ scene.register(so_playback)
 
 ## Examples
 
-Check out the `examples/` directory for more usage examples:
+Check out the `examples/` directory for practical usage examples:
 
-- `static_sine.py`: Demonstrates how to create and play simple sine waves through the spatializer system
+- **`static_sine.py`**: Demonstrates how to create and play simple sine waves through the spatializer system
+- **Audio file playback examples**: Various examples showing how to stream different audio formats
+- **Spatial mapping demonstrations**: Examples of different channel mapping schemes in action
+- **Integration examples**: How to integrate the spatial audio system with other applications
+
+Run any example with:
+```bash
+python examples/<example_name>.py
+```
 
 ## Development
 
