@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'bh=spatial_audio_ai.tools.client:main',
+            'playback=spatial_audio_ai.tools.playback:main',
         ],
     },
 ) 

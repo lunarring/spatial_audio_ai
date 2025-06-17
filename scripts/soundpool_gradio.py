@@ -248,4 +248,4 @@ with gr.Blocks() as demo:
         stop_btn.click(stop_playback, outputs=playback_status)
 
 if __name__ == "__main__":
-    demo.launch() 
+    demo.launch(server_name="10.40.49.143") 
