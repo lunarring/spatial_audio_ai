@@ -255,10 +255,16 @@ def stream_audio_file(file_path: str,
 
         n_speakers, total_samples = stream_data.shape
         n_blocks = total_samples // BLOCKSIZE
+        chunk_duration = BLOCKSIZE / sample_rate
+        start_time = time.perf_counter()
         for i in range(n_blocks):
             chunk = stream_data[:, i*BLOCKSIZE:(i+1)*BLOCKSIZE]
             streamer.send(chunk)
-            time.sleep(BLOCKSIZE / sample_rate)
+            # Schedule so that chunk i is sent at (i+1)*chunk_duration
+            next_time = start_time + (i + 1) * chunk_duration
+            sleep_time = next_time - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
         print("Audio sent. Streaming completed.")
     finally:
         streamer.close()
