@@ -49,18 +49,28 @@ def load_audio_file(file_path: str) -> tuple[np.ndarray, int]:
 def resample_audio(audio_data: np.ndarray, original_sr: int, 
                    target_sr: int) -> np.ndarray:
     """
-    Simple resampling using scipy if needed.
+    High-quality resampling using scipy with anti-aliasing.
     """
     if original_sr == target_sr:
         return audio_data
     
     try:
         from scipy import signal
-        # Calculate resampling ratio
-        num_samples = int(len(audio_data) * target_sr / original_sr)
-        resampled = signal.resample(audio_data, num_samples)
-        print(f"Resampled from {original_sr} Hz to {target_sr} Hz")
-        return resampled
+        
+        # Use scipy's resample_poly for better quality when possible
+        # (works well for integer ratios)
+        ratio = target_sr / original_sr
+        if abs(ratio - round(ratio)) < 1e-6:  # Nearly integer ratio
+            up = int(round(ratio)) if ratio >= 1 else 1
+            down = 1 if ratio >= 1 else int(round(1/ratio))
+            resampled = signal.resample_poly(audio_data, up, down)
+        else:
+            # Use standard resample with windowing for non-integer ratios
+            num_samples = int(len(audio_data) * target_sr / original_sr)
+            resampled = signal.resample(audio_data, num_samples, window='hann')
+        
+        print(f"Resampled from {original_sr} Hz to {target_sr} Hz (ratio: {ratio:.3f})")
+        return resampled.astype(np.float32)
     except ImportError:
         print(f"Warning: scipy not available for resampling. "
               f"Playing at original rate {original_sr} Hz")
@@ -192,10 +202,16 @@ def stream_audio_file(file_path: str,
     # Load audio file
     audio_data, sample_rate = load_audio_file(file_path)
     
-    # Resample if needed/requested
-    if auto_resample and sample_rate != SAMPLING_RATE:
-        audio_data = resample_audio(audio_data, sample_rate, SAMPLING_RATE)
-        sample_rate = SAMPLING_RATE
+    # Check sample rate compatibility
+    if sample_rate != SAMPLING_RATE:
+        if auto_resample:
+            print(f"Warning: File is {sample_rate}Hz but system expects {SAMPLING_RATE}Hz")
+            print("Resampling for compatibility (may affect quality)")
+            audio_data = resample_audio(audio_data, sample_rate, SAMPLING_RATE)
+            sample_rate = SAMPLING_RATE
+        else:
+            raise ValueError(f"Sample rate mismatch: file is {sample_rate}Hz, system expects {SAMPLING_RATE}Hz. "
+                           f"Use --no-resample flag or convert file to {SAMPLING_RATE}Hz")
     
     # Apply volume
     audio_data = audio_data * volume

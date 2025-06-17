@@ -14,42 +14,34 @@ SUPPORTED_SAMPLE_RATES = {
     "48000": 48000,  # Professional/broadcast standard
 }
 
-# Default sample rate - change this to switch between configurations
-# Can also be overridden via environment variable SPATIAL_AUDIO_SAMPLE_RATE
-DEFAULT_SAMPLE_RATE = "48000"  # Changed from 44100 to 48000
+# Fixed sample rate - we always use 48KHz for best quality
+SAMPLING_RATE = 48000
 
 def get_sample_rate() -> int:
     """
-    Get the current sample rate from config or environment variable.
+    Get the current sample rate (always 48KHz).
     
     Returns:
-        int: Sample rate in Hz (44100 or 48000)
-        
-    Environment Variables:
-        SPATIAL_AUDIO_SAMPLE_RATE: Override sample rate ("44100" or "48000")
+        int: Sample rate in Hz (48000)
     """
-    # Check environment variable first
-    env_rate = os.getenv("SPATIAL_AUDIO_SAMPLE_RATE")
-    if env_rate and env_rate in SUPPORTED_SAMPLE_RATES:
-        return SUPPORTED_SAMPLE_RATES[env_rate]
-    
-    # Fall back to default
-    return SUPPORTED_SAMPLE_RATES[DEFAULT_SAMPLE_RATE]
+    return SAMPLING_RATE
 
 def set_sample_rate(rate: Literal["44100", "48000"]) -> None:
     """
-    Set the sample rate for the current session.
+    Legacy function for compatibility. 
+    Note: System now always uses 48KHz.
     
     Args:
-        rate: Sample rate ("44100" or "48000")
+        rate: Sample rate ("44100" or "48000") - only 48000 is actually supported
     """
-    if rate not in SUPPORTED_SAMPLE_RATES:
-        raise ValueError(f"Unsupported sample rate: {rate}. Must be one of {list(SUPPORTED_SAMPLE_RATES.keys())}")
-    
-    os.environ["SPATIAL_AUDIO_SAMPLE_RATE"] = rate
+    if rate != "48000":
+        print(f"Warning: Requested {rate}Hz but system always uses 48KHz")
+    # Don't actually change anything - always use 48KHz
 
 # Main configuration constants
-SAMPLING_RATE = get_sample_rate()
+
+# BLOCKSIZE optimized for 48KHz
+# Target: ~21.3ms buffer (1024 samples at 48KHz)
 BLOCKSIZE = 1024
 
 # Audio processing settings
@@ -63,4 +55,6 @@ DEFAULT_PORT = 9999
 # Hardware settings
 N_SPEAKERS = 13
 
-print(f"Spatial Audio AI initialized with sample rate: {SAMPLING_RATE} Hz") 
+print(f"Spatial Audio AI initialized:")
+print(f"  Sample Rate: {SAMPLING_RATE} Hz (fixed)")
+print(f"  Block Size: {BLOCKSIZE} samples (~{BLOCKSIZE/SAMPLING_RATE*1000:.1f}ms)") 

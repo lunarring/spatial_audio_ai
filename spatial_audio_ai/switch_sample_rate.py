@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Utility script to easily switch between sample rates for Spatial Audio AI.
+Utility script to check sample rate for Spatial Audio AI.
+Note: System now always uses 48KHz for best quality.
 
 Usage:
-    python -m spatial_audio_ai.switch_sample_rate 48000
-    python -m spatial_audio_ai.switch_sample_rate 44100
     python -m spatial_audio_ai.switch_sample_rate --status
 """
 
@@ -13,29 +12,24 @@ import sys
 from spatial_audio_ai.config import get_sample_rate, set_sample_rate, SUPPORTED_SAMPLE_RATES
 
 def main():
-    parser = argparse.ArgumentParser(description='Switch sample rate for Spatial Audio AI')
+    parser = argparse.ArgumentParser(description='Check sample rate for Spatial Audio AI')
     parser.add_argument('rate', nargs='?', choices=['44100', '48000'], 
-                        help='Sample rate to set (44100 or 48000)')
+                        help='Legacy parameter (system always uses 48KHz)')
     parser.add_argument('--status', action='store_true', 
                         help='Show current sample rate')
     
     args = parser.parse_args()
     
-    if args.status or args.rate is None:
-        current_rate = get_sample_rate()
-        print(f"Current sample rate: {current_rate} Hz")
-        if not args.status:
-            print("Available rates:", list(SUPPORTED_SAMPLE_RATES.keys()))
-        return
+    current_rate = get_sample_rate()
+    print(f"System sample rate: {current_rate} Hz (fixed)")
     
-    try:
-        set_sample_rate(args.rate)
-        print(f"Sample rate set to {args.rate} Hz for this session")
-        print("Note: This only affects the current session.")
-        print(f"To make it permanent, edit DEFAULT_SAMPLE_RATE in config.py to '{args.rate}'")
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    if args.rate and args.rate != "48000":
+        print(f"Note: Requested {args.rate}Hz but system always uses 48KHz for best quality")
+    elif args.rate == "48000":
+        print("✓ System is already configured for 48KHz")
+        
+    if not args.status and not args.rate:
+        print("System is now fixed at 48KHz - no switching needed!")
 
 if __name__ == "__main__":
     main() 

@@ -121,7 +121,7 @@ class BlackHoleStereoRelayer:
     def __init__(self,
                  sample_rate=None,
                  channels=2,
-                 chunk_size=1024 * 10,
+                 chunk_size=None,
                  device_name="BlackHole 64ch",
                  max_queue_size=1000,
                  stream_volume=0.7,
@@ -146,6 +146,11 @@ class BlackHoleStereoRelayer:
             sample_rate = SAMPLING_RATE
         self.sample_rate = sample_rate
         self.channels = channels
+        
+        # Calculate optimal chunk size based on sample rate if not provided
+        if chunk_size is None:
+            # Default to 10x BLOCKSIZE for 48KHz (optimal for real-time streaming)
+            chunk_size = BLOCKSIZE * 10
         self.chunk_size = chunk_size
         self.device_name = device_name
         self.max_queue_size = max_queue_size
@@ -174,6 +179,13 @@ class BlackHoleStereoRelayer:
 
         # Get device index dynamically
         self.device_index = self.get_device_index_by_name(self.device_name)
+        
+        # Log configuration for debugging
+        self.logger.info(f"BlackHole Relayer configured:")
+        self.logger.info(f"  Sample Rate: {self.sample_rate} Hz")
+        self.logger.info(f"  Chunk Size: {self.chunk_size} samples (~{self.chunk_size/self.sample_rate*1000:.1f}ms)")
+        self.logger.info(f"  BLOCKSIZE: {BLOCKSIZE} samples (~{BLOCKSIZE/self.sample_rate*1000:.1f}ms)")
+        self.logger.info(f"  Device: {self.device_name}")
 
     def get_device_index_by_name(self, device_name):
         """
