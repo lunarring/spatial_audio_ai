@@ -318,9 +318,26 @@ class BlackHoleStereoRelayer:
         self._recording_thread = threading.Thread(target=self._record_audio, daemon=True)
         self._recording_thread.start()
 
+        # Pre-buffer chunks for smooth playback
+        min_buffer_chunks = 2  # Keep at least 2 chunks ahead
+        chunk_duration = self.chunk_size / self.sample_rate
+        
         try:
+            # Wait for initial buffer to fill
+            logging.info(f"Building initial buffer ({min_buffer_chunks} chunks)...")
+            while len(self.audio_deque) < min_buffer_chunks and not self._stop_event.is_set():
+                time.sleep(0.01)
+            
+            if self._stop_event.is_set():
+                return
+                
+            logging.info("Initial buffer ready, starting stream...")
+            start_time = time.perf_counter()
+            chunk_counter = 0
+
             while not self._stop_event.is_set():
-                if self.audio_deque:
+                # Maintain buffer - only send if we have enough chunks ahead
+                if len(self.audio_deque) >= min_buffer_chunks:
                     latest_chunk = self.audio_deque.popleft()
 
                     if not isinstance(latest_chunk, np.ndarray):
@@ -329,11 +346,24 @@ class BlackHoleStereoRelayer:
                     processed_chunk = latest_chunk.T * self.stream_volume
 
                     self.sound_streamer.send(processed_chunk)
+                    chunk_counter += 1
 
-                    logging.info(f"Processed and sent a new audio chunk of shape {processed_chunk.shape}.")
+                    logging.debug(f"Sent chunk {chunk_counter}, buffer size: {len(self.audio_deque)}")
+                    
+                    # Schedule next chunk send time (similar to playback.py)
+                    next_time = start_time + chunk_counter * chunk_duration
+                    sleep_time = next_time - time.perf_counter()
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+                    elif sleep_time < -chunk_duration:
+                        # If we're more than one chunk behind, reset timing
+                        start_time = time.perf_counter() - chunk_counter * chunk_duration
+                        logging.warning("Timing reset due to large delay")
                 else:
-                    logging.debug("No audio data available yet.")
-                time.sleep(0.01)
+                    # Buffer underrun - wait for more data
+                    logging.debug(f"Buffer underrun, waiting... (buffer size: {len(self.audio_deque)})")
+                    time.sleep(0.005)  # Shorter sleep when waiting for buffer
+                    
         except KeyboardInterrupt:
             logging.info("\nRecording stopped by user.")
             self.stop()
