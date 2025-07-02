@@ -250,7 +250,7 @@ if __name__ == "__main__":
     
     interface = create_interface()
     interface.launch(
-        server_name="0.0.0.0",  # Allow external connections
+        server_name="10.40.49.109",  # Listen on specific IP address
         server_port=7860,
         share=False,  # Set to True if you want a public link
         show_api=False
