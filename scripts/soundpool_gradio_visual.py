@@ -568,7 +568,7 @@ with gr.Blocks() as demo:
             label="Playback Duration (minutes)", value=2, precision=0
         )
         use_circular = gr.Checkbox(
-            label="Use Circular Moving Sound Objects", value=False
+            label="Use Circular Moving Sound Objects", value=True
         )
         circular_radius_min = gr.Slider(
             0.5, 30, value=2, step=0.1, label="Circular Radius Min"
