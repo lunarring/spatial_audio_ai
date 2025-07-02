@@ -56,12 +56,32 @@ class SineWaveMotionController:
     def setup_optitrack(self):
         """Initialize OptiTrack connection and rigid body."""
         try:
-            # Adjust these IP addresses as needed for your setup
-            self.motive = MotiveReceiver(
-                server_ip="10.40.49.47", client_ip="0.0.0.0"
-            )
-            self.rigid_body = RigidBody(self.motive, "A")
-            print("OptiTrack connection established")
+            # Use the exact same setup as the working motive_receiver.py example
+            print("Connecting to OptiTrack...")
+            self.motive = MotiveReceiver(server_ip="10.40.49.47")
+            
+            print("Waiting for data connection...")
+            time.sleep(1)
+            
+            # Test basic connection first
+            print("Testing basic connection...")
+            for i in range(50):  # Try for 5 seconds
+                latest_data = self.motive.get_last()
+                if latest_data:
+                    print(f"✓ Connection established! Frame ID: {latest_data['frame_id']}")
+                    break
+                time.sleep(0.1)
+            else:
+                print("✗ No data received. Check OptiTrack connection.")
+                self.motive.stop()
+                self.motive = None
+                self.rigid_body = None
+                return
+            
+            # Create a single rigid body "B" for demonstration
+            self.rigid_body = RigidBody(self.motive, "B")
+            print("OptiTrack connection established with rigid body 'B'")
+            
         except Exception as e:
             print(f"Failed to setup OptiTrack: {e}")
             self.motive = None
@@ -69,12 +89,19 @@ class SineWaveMotionController:
     
     def update_frequency_from_motion(self):
         """Update frequency based on rigid body height."""
-        if self.rigid_body is None:
+        if self.rigid_body is None or self.motive is None:
             return 440.0  # Default frequency if no tracking
             
         try:
+            # Get latest data like the motive_receiver example
+            latest_data = self.motive.get_last()
+            if not latest_data:
+                return self.sine_object.target_frequency
+            
+            # Update rigid body and get position
             self.rigid_body.update()
             position = self.rigid_body.positions.get_last()
+            
             if position is not None:
                 # Use Y coordinate (height) - index 1
                 self.current_height = position[1]
@@ -244,7 +271,7 @@ def create_interface():
         gr.Markdown("# Real-time Sine Wave Motion Control")
         gr.Markdown(
             "Control a real-time generated sine wave with spatial positioning. "
-            "**Frequency is controlled by OptiTrack rigid body 'A' height** "
+            "**Frequency is controlled by OptiTrack rigid body 'B' height** "
             "(0m = 50Hz, 2m = 15KHz)"
         )
         
@@ -262,7 +289,7 @@ def create_interface():
                 # Parameter controls (no frequency slider - motion controlled)
                 gr.Markdown("### Audio Parameters")
                 gr.Markdown(
-                    "**Frequency:** Motion Controlled (Rigid Body 'A' Height)"
+                    "**Frequency:** Motion Controlled (Rigid Body 'B' Height)"
                 )
                 
                 amp_slider = gr.Slider(
@@ -383,7 +410,7 @@ def create_interface():
 if __name__ == "__main__":
     print("Starting Real-time Sine Wave Motion Control Interface")
     print(f"Audio settings: {SAMPLING_RATE} Hz, {CHUNKSIZE} samples per chunk")
-    print("Frequency controlled by OptiTrack Rigid Body 'A' height:")
+    print("Frequency controlled by OptiTrack Rigid Body 'B' height:")
     print("  0m height = 50 Hz")
     print("  2m height = 15,000 Hz")
     print("Open your web browser to control the sine wave parameters")
