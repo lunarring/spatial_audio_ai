@@ -210,6 +210,9 @@ class SO_PlaybackSine(SoundObjectBase):
         
         sound_chunk = self.current_amplitude * np.sin(instantaneous_phase)
         
+        # Safety: Ensure no clipping at source
+        sound_chunk = np.clip(sound_chunk, -0.95, 0.95)
+        
         # Update phase for next chunk (maintain continuity)
         self.current_phase += 2 * np.pi * self.current_frequency * chunk_duration
         self.current_phase = self.current_phase % (2 * np.pi)

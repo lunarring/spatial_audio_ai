@@ -25,7 +25,8 @@ class StereoChannels(IntEnum):
 
 
 class StreamManager():
-    def __init__(self, device: int, samplerate: int, stereo_channel_idx: int) -> None:
+    def __init__(self, device: int, samplerate: int, 
+                 stereo_channel_idx: int) -> None:
         self.device = device
         self.samplerate = samplerate
         self.stereo_channel_idx = stereo_channel_idx
@@ -34,18 +35,27 @@ class StreamManager():
         self.queue_index = 0
         self.dropped_frames = 0
 
-    def callback(self, outdata : np.array, frames : int, time : float, status : sd.CallbackFlags) -> None:
+    def callback(self, outdata: np.array, frames: int, time: float, 
+                 status: sd.CallbackFlags) -> None:
         if status:
-            print(f"Status: {status}")
+            print(f"Audio callback status: {status}")
         
         if len(self.queue) > 0:
-            audio_to_play = np.zeros((len(audio := self.queue.popleft()), 2), dtype=np.float32)
+            audio = self.queue.popleft()
+            audio_to_play = np.zeros((len(audio), 2), dtype=np.float32)
             audio_to_play[:, 1 - self.stereo_channel_idx] = audio
-            remaining_samples_2 = len(audio) - self.index
+            
+            # Safety: Clip audio to prevent sound card clipping
+            max_level = np.max(np.abs(audio_to_play))
+            if max_level > 0.95:
+                print(f"Warning: Sound system clipping audio: {max_level:.3f}")
+                audio_to_play = np.clip(audio_to_play, -0.95, 0.95)
+            
             outdata[:] = audio_to_play
         else:
-            audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
-            outdata[:] = audio_to_play
+            # No audio available - output silence
+            outdata[:] = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
+            self.dropped_frames += 1
 
     def start(self) -> None:
         self.stream = sd.OutputStream(device=self.device, samplerate=self.samplerate, channels=2, callback=self.callback)

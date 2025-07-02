@@ -76,6 +76,11 @@ class SineWaveController:
                 if not self.is_running:
                     break
                     
+                # Monitor audio levels for debugging
+                max_level = np.max(np.abs(chunk))
+                if max_level > 0.8:
+                    print(f"Warning: High audio level detected: {max_level:.3f}")
+                
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)
                 

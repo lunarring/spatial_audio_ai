@@ -42,9 +42,9 @@ def set_sample_rate(rate: Literal["44100", "48000"]) -> None:
 
 # Main configuration constants
 
-# BLOCKSIZE optimized for stable low latency (20-30ms acceptable)
-# Target: ~10.7ms buffer (512 samples at 48KHz) for stable performance
-BLOCKSIZE = 512
+# BLOCKSIZE optimized for rock-solid stability (no clipping)
+# Target: ~42.7ms buffer (2048 samples at 48KHz) for maximum stability
+BLOCKSIZE = 2048
 
 # Audio processing settings
 DEFAULT_FADE_DURATION = 0.4
@@ -57,12 +57,12 @@ DEFAULT_PORT = 9999
 # Hardware settings
 N_SPEAKERS = 13
 
-# Real-time performance settings for stable operation
-MAX_QUEUE_SIZE = 8  # Increased buffer depth to prevent clipping
-QUEUE_WARNING_THRESHOLD = 6  # Warn when queue is getting full
-QUEUE_DROP_THRESHOLD = 10  # Emergency frame dropping threshold
+# Real-time performance settings for maximum stability
+MAX_QUEUE_SIZE = 12  # Large buffer depth to completely prevent clipping
+QUEUE_WARNING_THRESHOLD = 8  # Conservative warning threshold
+QUEUE_DROP_THRESHOLD = 15  # High emergency threshold
 
-print("Spatial Audio AI initialized (STABLE LOW LATENCY MODE):")
+print("Spatial Audio AI initialized (MAXIMUM STABILITY MODE):")
 print(f"  Sample Rate: {SAMPLING_RATE} Hz (fixed)")
 print(f"  Block Size: {BLOCKSIZE} samples " +
       f"(~{BLOCKSIZE/SAMPLING_RATE*1000:.1f}ms)") 
