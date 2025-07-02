@@ -19,7 +19,6 @@ from spatial_audio_ai.tools.spatializer import (
 VISUAL_RENDERING_AVAILABLE = False
 try:
     import pygame
-    import math
     VISUAL_RENDERING_AVAILABLE = True
     print("Pygame visualization available")
 except ImportError as e:
@@ -179,15 +178,9 @@ class PygameVisualRenderer:
                 self.screen.blit(text, text_rect)
     
     def _update_and_draw_objects_from_snapshot(self, snapshot):
-        """Update positions and draw objects from snapshot data"""
-        current_time = time.time()
-        
+        """Draw objects from snapshot data - positions are already correct"""
         for i, obj_data in enumerate(snapshot):
-            # Update position for moving objects
-            if obj_data['is_moving']:
-                self._update_circular_motion_snapshot(obj_data, current_time)
-            
-            # Get current position
+            # Use the actual position from the audio system (no need to update)
             pos = obj_data['position']
             screen_pos = self.world_to_screen(pos)
             color = self.colors[i % len(self.colors)]
@@ -221,29 +214,6 @@ class PygameVisualRenderer:
         active_ids = {obj_data['id'] for obj_data in snapshot}
         self.trails = {k: v for k, v in self.trails.items() 
                        if k in active_ids}
-    
-    def _update_circular_motion_snapshot(self, obj_data, current_time):
-        """Update position for circular moving objects using snapshot data"""
-        # Initialize timing if needed
-        if 'visual_start_time' not in obj_data:
-            obj_data['visual_start_time'] = current_time
-            obj_data['visual_initial_angle'] = obj_data['angle']
-        
-        # Get motion parameters
-        elapsed = current_time - obj_data['visual_start_time']
-        speed = obj_data['speed']
-        direction = obj_data['direction']
-        radius = obj_data['radius']
-        center = obj_data['center']
-        
-        # Calculate new position
-        current_angle = (obj_data['visual_initial_angle'] + 
-                        direction * speed * elapsed)
-        new_x = center[0] + radius * math.cos(current_angle)
-        new_y = center[1] + radius * math.sin(current_angle)
-        
-        # Update position
-        obj_data['position'] = np.array([new_x, new_y])
     
     def _draw_trail(self, obj_id, color):
         """Draw movement trail"""
@@ -294,23 +264,27 @@ class PygameVisualRenderer:
         """Thread-safe update of scene data"""
         with self.snapshot_lock:
             self.scene_snapshot = []
-            for obj in sound_objects:
-                if hasattr(obj, 'position'):
-                    # Create a safe copy of object data
+            
+            for i, obj in enumerate(sound_objects):
+                # Get the actual current position from the sound object
+                if hasattr(obj, 'position') and obj.position is not None:
+                    # Create a safe copy of object data with ACTUAL position
                     obj_data = {
                         'position': np.copy(obj.position),
                         'is_moving': isinstance(obj, SO_PlaybackCircularMove),
-                        'id': id(obj)
+                        'id': id(obj),
+                        'obj_type': type(obj).__name__
                     }
-                    # Copy movement parameters if it's a moving object
+                    
+                    # For moving objects, copy their parameters for trail rendering
                     if obj_data['is_moving']:
                         obj_data.update({
+                            'radius': getattr(obj, 'radius', 5.0),
                             'speed': getattr(obj, 'speed', 1.0),
                             'direction': getattr(obj, 'direction', 1),
-                            'radius': getattr(obj, 'radius', 5.0),
-                            'center': getattr(obj, 'center', np.array([0.0, 0.0])),
-                            'angle': getattr(obj, 'angle', 0)
+                            'center': getattr(obj, 'center', np.array([0.0, 0.0]))
                         })
+                    
                     self.scene_snapshot.append(obj_data)
 
 
