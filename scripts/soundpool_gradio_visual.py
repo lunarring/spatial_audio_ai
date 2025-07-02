@@ -2,25 +2,10 @@ import gradio as gr
 import os
 import random
 import string
-import threading
 import time
+import threading
 import numpy as np
 import soundfile as sf
-
-# Try to import visual rendering dependencies
-VISUAL_RENDERING_AVAILABLE = False
-try:
-    import lunar_tools as lt
-    import torch
-    from PIL import Image, ImageDraw
-    VISUAL_RENDERING_AVAILABLE = True
-except ImportError as e:
-    print(f"Visual rendering not available: {e}")
-    print("Audio playback will work normally without visual rendering")
-    lt = None
-    torch = None
-    Image = None
-    ImageDraw = None
 
 from spatial_audio_ai.generators.stable_audio import (
     StableAudioOpenSmall, SoundPoolGenerator, SpatialSoundPoolPlayer
@@ -29,6 +14,18 @@ from spatial_audio_ai.tools.tools import apply_fade_in_out, save_sound
 from spatial_audio_ai.tools.spatializer import (
     SO_Playback, SO_PlaybackCircularMove, CHUNKSIZE, SAMPLING_RATE
 )
+
+# Try to import pygame for visualization
+VISUAL_RENDERING_AVAILABLE = False
+try:
+    import pygame
+    import math
+    VISUAL_RENDERING_AVAILABLE = True
+    print("Pygame visualization available")
+except ImportError as e:
+    print(f"Visual rendering not available: {e}")
+    print("Audio playback will work normally without visual rendering")
+    pygame = None
 
 # Default prompts (hybrid/mixed)
 default_prompts = [
@@ -45,210 +42,323 @@ default_prompts = [
 ]
 
 
-# Global variables for visual rendering
-visual_renderer = None
-visual_renderer_stop_flag = False
-visual_renderer_thread = None
-
-
-class SpatialVisualRenderer:
-    """Real-time visual renderer for spatial audio system"""
+class PygameVisualRenderer:
+    """Clean pygame-based visual renderer for spatial audio"""
     
-    def __init__(self, width=1920, height=1080, max_box_size=30):
+    def __init__(self, width=1000, height=700):
         self.width = width
         self.height = height
-        self.max_box_size = max_box_size
-        self.renderer = lt.Renderer(width=width, height=height)
+        self.running = False
+        self.screen = None
+        self.clock = None
+        
+        # Center and scale
         self.center_x = width // 2
         self.center_y = height // 2
+        self.scale = min(width, height) // 8
         
-        # Scale factor to map spatial coordinates to screen coordinates
-        self.scale = min(width, height) // 3 / max_box_size
-        
-        # Speaker positions (same as in Spatializer class)
-        self.speaker_positions = np.asarray([
+        # Speaker positions (12-speaker surround)
+        self.speaker_positions = np.array([
             (-4.80, 4.7), (-3.0, 4.8), (-0.0, 4.8), (3.0, 4.8),
             (4.8, 4.7), (4.8, 0.4), (4.8, -4.6), (2.7, -4.6),
             (-0.0, -4.6), (-2.7, -4.6), (-4.8, -4.6), (-4.8, 0.4),
         ])
         
-        # Color palette for different sound objects
+        # Colors for sound objects
         self.colors = [
-            (255, 100, 100, 255),  # Red
-            (100, 255, 100, 255),  # Green  
-            (100, 100, 255, 255),  # Blue
-            (255, 255, 100, 255),  # Yellow
-            (255, 100, 255, 255),  # Magenta
-            (100, 255, 255, 255),  # Cyan
-            (255, 150, 100, 255),  # Orange
-            (150, 100, 255, 255),  # Purple
-            (100, 255, 150, 255),  # Light green
-            (255, 100, 150, 255),  # Pink
+            (255, 100, 100),  # Red
+            (100, 255, 100),  # Green
+            (100, 100, 255),  # Blue
+            (255, 255, 100),  # Yellow
+            (255, 100, 255),  # Magenta
+            (100, 255, 255),  # Cyan
+            (255, 180, 100),  # Orange
+            (180, 100, 255),  # Purple
+            (100, 255, 180),  # Light green
+            (255, 100, 180),  # Pink
         ]
         
-        # Store object trails for visual history
-        self.object_trails = {}
-        self.max_trail_length = 50
+        # Trail storage
+        self.trails = {}
+        self.max_trail_length = 40
         
-    def world_to_screen(self, pos):
-        """Convert world coordinates to screen coordinates"""
-        screen_x = self.center_x + pos[0] * self.scale
-        screen_y = self.center_y - pos[1] * self.scale  # Flip Y axis
-        return int(screen_x), int(screen_y)
+        # Font
+        self.font = None
         
-    def render_frame(self, scene, box_size):
-        """Render a single frame showing all sound source positions"""
-        # Create RGBA image
-        img = Image.new('RGBA', (self.width, self.height), (20, 20, 30, 255))
-        draw = ImageDraw.Draw(img)
+    def initialize(self):
+        """Initialize pygame"""
+        if not pygame:
+            return False
+            
+        pygame.init()
+        self.screen = pygame.display.set_mode((self.width, self.height))
+        pygame.display.set_caption("Spatial Audio Visualization")
+        self.clock = pygame.time.Clock()
+        
+        try:
+            self.font = pygame.font.Font(None, 24)
+        except:
+            self.font = None
+            
+        self.running = True
+        return True
+        
+    def world_to_screen(self, world_pos):
+        """Convert world coordinates to screen pixels"""
+        x = int(self.center_x + world_pos[0] * self.scale)
+        y = int(self.center_y - world_pos[1] * self.scale)  # Flip Y
+        return (x, y)
+    
+    def update_frame(self, scene, box_size):
+        """Update and draw a single frame"""
+        if not self.running or not self.screen:
+            return False
+            
+        # Handle pygame events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+                return False
+        
+        # Clear screen with dark background
+        self.screen.fill((20, 25, 35))
         
         # Draw spatial area boundary
-        box_corners = [
-            self.world_to_screen([-box_size, -box_size]),
-            self.world_to_screen([box_size, -box_size]),
-            self.world_to_screen([box_size, box_size]),
-            self.world_to_screen([-box_size, box_size])
-        ]
-        draw.polygon(box_corners, outline=(80, 80, 80, 255), fill=None, width=2)
+        self._draw_boundary(box_size)
         
-        # Draw speaker positions
-        for i, speaker_pos in enumerate(self.speaker_positions):
-            x, y = self.world_to_screen(speaker_pos)
-            draw.ellipse([x-8, y-8, x+8, y+8], fill=(200, 200, 200, 255))
-            # Speaker number
-            try:
-                draw.text((x-5, y-5), str(i+1), fill=(0, 0, 0, 255))
-            except:
-                pass
+        # Draw speakers
+        self._draw_speakers()
         
         # Draw center point
-        center_screen = self.world_to_screen([0, 0])
-        draw.ellipse([center_screen[0]-3, center_screen[1]-3, 
-                     center_screen[0]+3, center_screen[1]+3], 
-                    fill=(255, 255, 255, 255))
+        center_screen = self.world_to_screen((0, 0))
+        pygame.draw.circle(self.screen, (255, 255, 255), center_screen, 4)
         
-        # Draw sound objects and their trails
-        active_objects = scene.sound_objects if hasattr(scene, 'sound_objects') else []
+        # Get and update sound objects
+        sound_objects = []
+        if hasattr(scene, 'sound_objects'):
+            sound_objects = scene.sound_objects
+            
+        # Update positions and draw objects
+        self._update_and_draw_objects(sound_objects)
         
-        for i, sound_obj in enumerate(active_objects):
-            if hasattr(sound_obj, 'position'):
-                # Update position for moving objects
-                if hasattr(sound_obj, 'update_position'):
-                    sound_obj.update_position()
-                
-                pos = sound_obj.position
-                screen_pos = self.world_to_screen(pos)
-                color = self.colors[i % len(self.colors)]
-                
-                # Store trail position
-                obj_id = id(sound_obj)
-                if obj_id not in self.object_trails:
-                    self.object_trails[obj_id] = []
-                self.object_trails[obj_id].append(screen_pos)
-                if len(self.object_trails[obj_id]) > self.max_trail_length:
-                    self.object_trails[obj_id].pop(0)
-                
-                # Draw trail
-                if len(self.object_trails[obj_id]) > 1:
-                    for j in range(1, len(self.object_trails[obj_id])):
-                        alpha = int(255 * j / len(self.object_trails[obj_id]))
-                        trail_color = (*color[:3], alpha)
-                        prev_pos = self.object_trails[obj_id][j-1]
-                        curr_pos = self.object_trails[obj_id][j]
-                        draw.line([prev_pos, curr_pos], fill=trail_color, width=2)
-                
-                # Draw sound object
-                radius = 15 if isinstance(sound_obj, SO_PlaybackCircularMove) else 10
-                draw.ellipse([screen_pos[0]-radius, screen_pos[1]-radius,
-                             screen_pos[0]+radius, screen_pos[1]+radius],
-                            fill=color, outline=(255, 255, 255, 255), width=2)
-                
-                # Draw direction indicator for circular objects
-                if isinstance(sound_obj, SO_PlaybackCircularMove):
-                    # Draw arrow showing movement direction
-                    if hasattr(sound_obj, 'direction') and hasattr(sound_obj, 'speed'):
-                        elapsed_time = time.time() - sound_obj.start_time
-                        angle = sound_obj.initial_angle + sound_obj.direction * sound_obj.speed * elapsed_time
-                        arrow_end = (
-                            screen_pos[0] + int(25 * np.cos(angle + sound_obj.direction * 0.3)),
-                            screen_pos[1] - int(25 * np.sin(angle + sound_obj.direction * 0.3))
-                        )
-                        draw.line([screen_pos, arrow_end], fill=(255, 255, 255, 255), width=3)
+        # Draw info panel
+        self._draw_info_panel(sound_objects, box_size)
+        
+        # Update display
+        pygame.display.flip()
+        self.clock.tick(30)  # 30 FPS
+        
+        return True
+    
+    def _draw_boundary(self, box_size):
+        """Draw spatial area boundary"""
+        corners = [
+            self.world_to_screen((-box_size, -box_size)),
+            self.world_to_screen((box_size, -box_size)),
+            self.world_to_screen((box_size, box_size)),
+            self.world_to_screen((-box_size, box_size))
+        ]
+        pygame.draw.polygon(self.screen, (100, 120, 150), corners, 2)
+    
+    def _draw_speakers(self):
+        """Draw speaker positions"""
+        for i, speaker_pos in enumerate(self.speaker_positions):
+            x, y = self.world_to_screen(speaker_pos)
+            
+            # Speaker circle
+            pygame.draw.circle(self.screen, (150, 150, 170), (x, y), 10)
+            pygame.draw.circle(self.screen, (200, 200, 220), (x, y), 10, 2)
+            
+            # Speaker number
+            if self.font:
+                text = self.font.render(str(i+1), True, (255, 255, 255))
+                text_rect = text.get_rect(center=(x, y))
+                self.screen.blit(text, text_rect)
+    
+    def _update_and_draw_objects(self, sound_objects):
+        """Update positions and draw all sound objects"""
+        current_time = time.time()
+        
+        for i, sound_obj in enumerate(sound_objects):
+            if not hasattr(sound_obj, 'position'):
+                continue
+            
+            # Update position for moving objects
+            if isinstance(sound_obj, SO_PlaybackCircularMove):
+                self._update_circular_motion(sound_obj, current_time)
+            
+            # Get current position
+            pos = sound_obj.position
+            screen_pos = self.world_to_screen(pos)
+            color = self.colors[i % len(self.colors)]
+            
+            # Update trail
+            obj_id = id(sound_obj)
+            if obj_id not in self.trails:
+                self.trails[obj_id] = []
+            self.trails[obj_id].append(screen_pos)
+            if len(self.trails[obj_id]) > self.max_trail_length:
+                self.trails[obj_id].pop(0)
+            
+            # Draw trail
+            self._draw_trail(obj_id, color)
+            
+            # Draw sound object
+            is_moving = isinstance(sound_obj, SO_PlaybackCircularMove)
+            radius = 15 if is_moving else 10
+            
+            # Draw with glow effect
+            for r in range(radius + 5, radius - 1, -1):
+                alpha = max(50, 255 - (radius + 5 - r) * 40)
+                glow_color = tuple(min(255, c + alpha // 5) for c in color)
+                pygame.draw.circle(self.screen, glow_color, screen_pos, r)
+            
+            # Main circle
+            pygame.draw.circle(self.screen, color, screen_pos, radius)
+            pygame.draw.circle(self.screen, (255, 255, 255), screen_pos, radius, 2)
         
         # Clean up old trails
-        current_obj_ids = {id(obj) for obj in active_objects}
-        self.object_trails = {k: v for k, v in self.object_trails.items() if k in current_obj_ids}
+        active_ids = {id(obj) for obj in sound_objects}
+        self.trails = {k: v for k, v in self.trails.items() if k in active_ids}
+    
+    def _update_circular_motion(self, sound_obj, current_time):
+        """Update position for circular moving objects"""
+        # Initialize timing if needed
+        if not hasattr(sound_obj, 'visual_start_time'):
+            sound_obj.visual_start_time = current_time
+            sound_obj.visual_initial_angle = getattr(sound_obj, 'angle', 0)
         
-        # Add info text
-        try:
-            info_text = f"Active Sounds: {len(active_objects)} | Spatial Area: {box_size:.1f}x{box_size:.1f}"
-            draw.text((10, 10), info_text, fill=(255, 255, 255, 255))
+        # Get motion parameters
+        elapsed = current_time - sound_obj.visual_start_time
+        speed = getattr(sound_obj, 'speed', 1.0)
+        direction = getattr(sound_obj, 'direction', 1)
+        radius = getattr(sound_obj, 'radius', 5.0)
+        center = getattr(sound_obj, 'center', np.array([0.0, 0.0]))
+        
+        # Calculate new position
+        current_angle = sound_obj.visual_initial_angle + direction * speed * elapsed
+        new_x = center[0] + radius * math.cos(current_angle)
+        new_y = center[1] + radius * math.sin(current_angle)
+        
+        # Update position
+        sound_obj.position = np.array([new_x, new_y])
+    
+    def _draw_trail(self, obj_id, color):
+        """Draw movement trail"""
+        trail = self.trails[obj_id]
+        if len(trail) < 2:
+            return
+        
+        for i in range(1, len(trail)):
+            # Fade trail based on age
+            alpha = i / len(trail)
+            trail_color = tuple(int(c * alpha * 0.8) for c in color)
+            width = max(1, int(4 * alpha))
             
-            # Legend
-            legend_y = 40
-            draw.text((10, legend_y), "Legend:", fill=(255, 255, 255, 255))
-            draw.text((10, legend_y + 20), "○ Static Sound", fill=(255, 255, 255, 255))
-            draw.text((10, legend_y + 40), "◉ Moving Sound", fill=(255, 255, 255, 255))
-            draw.text((10, legend_y + 60), "□ Speakers", fill=(200, 200, 200, 255))
-            draw.text((10, legend_y + 80), "▢ Spatial Area", fill=(80, 80, 80, 255))
-        except:
-            pass
+            if i < len(trail):
+                pygame.draw.line(self.screen, trail_color, 
+                               trail[i-1], trail[i], width)
+    
+    def _draw_info_panel(self, sound_objects, box_size):
+        """Draw information panel"""
+        if not self.font:
+            return
+            
+        info_lines = [
+            f"Active Sounds: {len(sound_objects)}",
+            f"Spatial Area: {box_size:.1f}x{box_size:.1f}",
+            f"Speakers: 12-channel surround",
+            "",
+            "Legend:",
+            "Large circles = Moving sounds",
+            "Small circles = Static sounds",
+            "Numbered circles = Speakers"
+        ]
         
-        # Convert PIL image to torch tensor
-        img_array = np.array(img).astype(np.float32)
-        img_tensor = torch.from_numpy(img_array)
-        
-        return img_tensor
+        y_pos = 20
+        for line in info_lines:
+            if line:  # Skip empty lines
+                text = self.font.render(line, True, (200, 200, 200))
+                self.screen.blit(text, (20, y_pos))
+            y_pos += 25
+    
+    def cleanup(self):
+        """Clean up pygame resources"""
+        self.running = False
+        if pygame:
+            pygame.quit()
 
-def start_visual_renderer(scene, box_size, fps=30):
-    """Start the visual renderer in a separate thread"""
-    global visual_renderer, visual_renderer_stop_flag, visual_renderer_thread
+
+# Global visualization control
+visual_renderer = None
+visual_thread = None
+visual_stop_flag = False
+
+
+def start_pygame_visualization(scene, box_size):
+    """Start pygame visualization in separate thread"""
+    global visual_renderer, visual_thread, visual_stop_flag
     
     if not VISUAL_RENDERING_AVAILABLE:
-        print("Visual rendering not available - skipping")
-        return
+        print("Pygame not available for visualization")
+        return False
     
-    visual_renderer_stop_flag = False
-    visual_renderer = SpatialVisualRenderer()
+    visual_stop_flag = False
+    visual_renderer = PygameVisualRenderer()
     
-    def render_loop():
-        frame_time = 1.0 / fps
-        while not visual_renderer_stop_flag:
+    def visual_loop():
+        if not visual_renderer.initialize():
+            print("Failed to initialize pygame visualization")
+            return
+            
+        print("Pygame visualization started")
+        
+        while not visual_stop_flag and visual_renderer.running:
             try:
-                frame = visual_renderer.render_frame(scene, box_size)
-                visual_renderer.renderer.render(frame)
-                time.sleep(frame_time)
+                if not visual_renderer.update_frame(scene, box_size):
+                    break
+                time.sleep(0.033)  # ~30 FPS
             except Exception as e:
-                print(f"Rendering error: {e}")
-                time.sleep(0.1)
+                print(f"Visualization error: {e}")
+                break
+        
+        visual_renderer.cleanup()
+        print("Pygame visualization stopped")
     
-    visual_renderer_thread = threading.Thread(target=render_loop)
-    visual_renderer_thread.daemon = True
-    visual_renderer_thread.start()
-    
-def stop_visual_renderer():
-    """Stop the visual renderer"""
-    global visual_renderer_stop_flag, visual_renderer_thread
-    visual_renderer_stop_flag = True
-    if visual_renderer_thread and visual_renderer_thread.is_alive():
-        visual_renderer_thread.join(timeout=2)
+    visual_thread = threading.Thread(target=visual_loop)
+    visual_thread.daemon = True
+    visual_thread.start()
+    return True
+
+
+def stop_pygame_visualization():
+    """Stop pygame visualization"""
+    global visual_stop_flag, visual_renderer
+    visual_stop_flag = True
+    if visual_renderer:
+        visual_renderer.running = False
+
 
 def random_dir(base="/tmp/soundpool_gradio_"):
+    """Generate random temporary directory"""
     rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     dir_tmp = f"{base}{rand}"
     os.makedirs(dir_tmp, exist_ok=True)
     return dir_tmp
 
-# Threaded sound generation with progress callback
+
 def generate_sounds(prompts, n_sounds, min_duration, max_duration,
                    progress=gr.Progress(track_tqdm=True)):
+    """Generate sound pool with progress tracking"""
     dir_tmp = random_dir()
-    audio_diffusion = StableAudioOpenSmall(steps=8, cfg_scale=1.0, force_mono=True)
+    audio_diffusion = StableAudioOpenSmall(steps=8, cfg_scale=1.0, 
+                                          force_mono=True)
     spg = SoundPoolGenerator(audio_diffusion, directory=dir_tmp)
     spg.set_min_duration_sound(min_duration)
     spg.set_max_duration_sound(max_duration)
     prompts = [p.strip() for p in prompts.split('\n') if p.strip()]
     n_sounds = int(n_sounds)
+    
     for i in progress.tqdm(range(n_sounds), desc="Generating sounds"):
         prompt = random.choice(prompts)
         duration = random.uniform(
@@ -262,11 +372,13 @@ def generate_sounds(prompts, n_sounds, min_duration, max_duration,
         filename = f"{prompt.replace(' ', '_')[:40]}_{seed}.wav"
         file_path = os.path.join(dir_tmp, filename)
         save_sound(sound, file_path, audio_diffusion.sampling_rate)
+    
     return dir_tmp
 
-# Global for playback thread and stop flag
-playback_thread = None
+
+# Global playback control
 playback_stop_flag = False
+
 
 def play_spatial_soundpool(
     dir_path, p_inject, box_size, volume, duration_minutes,
@@ -277,8 +389,14 @@ def play_spatial_soundpool(
     circular_loop, enable_visual_rendering=True,
     progress=gr.Progress(track_tqdm=True)
 ):
-    global playback_thread, playback_stop_flag
+    """Main playback function with pygame visualization"""
+    global playback_stop_flag
     playback_stop_flag = False
+    
+    # Stop any existing visualization
+    stop_pygame_visualization()
+    
+    # Setup audio player
     name_space = os.path.basename(dir_path)
     base_dir = os.path.dirname(dir_path)
     player = SpatialSoundPoolPlayer(
@@ -292,97 +410,85 @@ def play_spatial_soundpool(
         circular_speed_range=(circular_speed_min, circular_speed_max),
         circular_angle_range=(circular_angle_min, circular_angle_max),
         circular_direction_choices=[circular_direction],
-        circular_center=np.array([circular_center_x, circular_center_y], dtype=float),
+        circular_center=np.array([circular_center_x, circular_center_y], 
+                                dtype=float),
         circular_loop=circular_loop
     )
 
-    # Initialize visual renderer in main thread if enabled
-    visual_renderer = None
+    # Start visualization if enabled
+    visual_started = False
     if enable_visual_rendering and VISUAL_RENDERING_AVAILABLE:
-        try:
-            visual_renderer = SpatialVisualRenderer()
-            print("Visual renderer initialized in main thread")
-        except Exception as ve:
-            print(f"Could not start visual renderer: {ve}")
-            visual_renderer = None
+        visual_started = start_pygame_visualization(player.scene, box_size)
+        if visual_started:
+            print("Pygame visualization window opened")
+        else:
+            print("Failed to start visualization")
 
-    def playback():
-        nonlocal visual_renderer  # Access outer scope variable
-        last_visual_update = 0
-        visual_frame_interval = 1.0 / 30  # 30 FPS
-        
-        try:
-            player.start_initial_sound()
-            
-            start_time = time.time()
-            duration_seconds = duration_minutes * 60
-            
-            # Run audio + visual in main thread (no separate threading)
-            for j, chunk in enumerate(player.scene.run()):
-                if playback_stop_flag:
-                    print("Playback stopped by user (flag).")
-                    break
-                    
-                # Handle audio injection
-                if np.random.rand() < player.p_inject:
-                    player.wav_files = [
-                        f for f in os.listdir(player.dir_scan)
-                        if f.endswith('.wav')
-                    ]
-                    random_file = random.choice(player.wav_files)
-                    sound = sf.read(f"{player.dir_scan}{random_file}")[0]
-                    position = np.random.uniform(
-                        -player.box_size, player.box_size, size=2
-                    )
-                    player.scene.register(SO_Playback(sound, position=position))
-                    print(f"Injected: {random_file} at position: "
-                          f"({position[0]:.1f}, {position[1]:.1f})")
-                
-                # Send audio
-                chunk = np.clip(chunk, -1, 1)
-                player.sound_streamer.send(chunk)
-                
-                # Update visual rendering at reduced frame rate
-                current_time = time.time()
-                if (visual_renderer and 
-                    current_time - last_visual_update > visual_frame_interval):
-                    try:
-                        frame = visual_renderer.render_frame(player.scene, box_size)
-                        visual_renderer.renderer.render(frame)
-                        last_visual_update = current_time
-                    except Exception as ve:
-                        print(f"Visual rendering error: {ve}")
-                        visual_renderer = None  # Disable on error
-                
-                time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
-                elapsed = time.time() - start_time
-                if elapsed > duration_seconds:
-                    print(f"Playback completed after {elapsed:.1f} seconds")
-                    break
-                if j % 430 == 0:
-                    active_sounds = len(player.scene.sound_objects)
-                    status = f"Time: {elapsed:.1f}s | Active sounds: {active_sounds}"
-                    if visual_renderer:
-                        status += " | Visual: ON"
-                    print(status)
-        except Exception as e:
-            print(f"Playback error: {e}")
-
-    # Run playback directly in main thread to avoid SDL2 threading issues
+    # Main playback loop
     try:
-        playback()
+        player.start_initial_sound()
+        start_time = time.time()
+        duration_seconds = duration_minutes * 60
+        
+        for j, chunk in enumerate(player.scene.run()):
+            if playback_stop_flag:
+                print("Playback stopped by user")
+                break
+            
+            # Handle audio injection
+            if np.random.rand() < player.p_inject:
+                player.wav_files = [
+                    f for f in os.listdir(player.dir_scan)
+                    if f.endswith('.wav')
+                ]
+                random_file = random.choice(player.wav_files)
+                sound = sf.read(f"{player.dir_scan}{random_file}")[0]
+                position = np.random.uniform(
+                    -player.box_size, player.box_size, size=2
+                )
+                player.scene.register(SO_Playback(sound, position=position))
+                print(f"Injected: {random_file} at position: "
+                      f"({position[0]:.1f}, {position[1]:.1f})")
+            
+            # Send audio chunk
+            chunk = np.clip(chunk, -1, 1)
+            player.sound_streamer.send(chunk)
+            
+            # Timing
+            time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+            elapsed = time.time() - start_time
+            if elapsed > duration_seconds:
+                print(f"Playback completed after {elapsed:.1f} seconds")
+                break
+            
+            # Status updates
+            if j % 430 == 0:
+                active_sounds = len(player.scene.sound_objects)
+                status = f"Time: {elapsed:.1f}s | Active: {active_sounds}"
+                if visual_started:
+                    status += " | Visual: ON"
+                print(status)
+        
         return f"Playback completed for {duration_minutes} minutes."
+    
     except Exception as e:
+        print(f"Playback error: {e}")
         return f"Playback error: {e}"
+    
+    finally:
+        # Stop visualization when playback ends
+        stop_pygame_visualization()
+
 
 def stop_playback():
+    """Stop the current playback and visualization"""
     global playback_stop_flag
     playback_stop_flag = True
-    return "Playback stop requested."
+    stop_pygame_visualization()
+    return "Playback and visualization stopped."
 
 
-# Visual rendering is now integrated with audio playback
-
+# Gradio interface
 with gr.Blocks() as demo:
     gr.Markdown(
         """
@@ -404,9 +510,9 @@ with gr.Blocks() as demo:
             label="Number of sounds to generate", value=10, precision=0
         )
         min_duration = gr.Slider(2, 20, value=3, step=0.1,
-                                 label="Minimum Sound Duration (seconds)")
+                                label="Minimum Sound Duration (seconds)")
         max_duration = gr.Slider(2, 20, value=8, step=0.1,
-                                 label="Maximum Sound Duration (seconds)")
+                                label="Maximum Sound Duration (seconds)")
         generate_btn = gr.Button("Generate Sounds")
         output_dir = gr.Textbox(label="Output Directory", interactive=False)
         gen_progress = gr.Textbox(label="Status", interactive=False)
@@ -414,9 +520,9 @@ with gr.Blocks() as demo:
     with gr.Tab("2. Spatial Playback + Visual"):
         gr.Markdown(
             """
-        Select a generated sound pool directory and play it back with spatialization.
-        **NEW**: Visual rendering window will automatically open showing real-time 
-        sound source positions, movement trails, and speaker locations in 2D space!
+        Select a generated sound pool directory and play it back with 
+        spatialization. **NEW PYGAME VISUALIZATION**: A separate window 
+        will open showing real-time sound source positions and movements!
         """
         )
         dir_input = gr.Textbox(
@@ -448,7 +554,8 @@ with gr.Blocks() as demo:
             0, 6.283, value=0, step=0.01, label="Circular Angle Min (rad)"
         )
         circular_angle_max = gr.Slider(
-            0, 6.283, value=6.283, step=0.01, label="Circular Angle Max (rad)"
+            0, 6.283, value=6.283, step=0.01, 
+            label="Circular Angle Max (rad)"
         )
         circular_direction = gr.Dropdown(
             [-1, 1], value=1, label="Circular Direction (1=CCW, -1=CW)"
@@ -463,19 +570,24 @@ with gr.Blocks() as demo:
             label="Loop Circular Sound", value=True
         )
         enable_visual = gr.Checkbox(
-            label="Enable Visual Rendering", 
+            label="Enable Pygame Visualization", 
             value=VISUAL_RENDERING_AVAILABLE,
             interactive=VISUAL_RENDERING_AVAILABLE
         )
         
         with gr.Row():
-            play_btn = gr.Button("Start Spatial Playback + Visual")
+            play_btn = gr.Button("Start Spatial Playback + Pygame Visual")
             stop_btn = gr.Button("Stop Playback")
         
-        playback_status = gr.Textbox(label="Playback Status", interactive=False)
-        visual_status = gr.Textbox(label="Visual Status", interactive=False,
-                                   value="Visual rendering available" if VISUAL_RENDERING_AVAILABLE 
-                                   else "Visual rendering not available (install SDL2)")
+        playback_status = gr.Textbox(label="Playback Status", 
+                                    interactive=False)
+        visual_status = gr.Textbox(
+            label="Visual Status", 
+            interactive=False,
+            value=("Pygame visualization available" 
+                   if VISUAL_RENDERING_AVAILABLE 
+                   else "Pygame not available (pip install pygame)")
+        )
 
         play_btn.click(
             play_spatial_soundpool,
@@ -491,17 +603,19 @@ with gr.Blocks() as demo:
         )
         stop_btn.click(stop_playback, outputs=playback_status)
 
-    # Define the generate function and connect it to the button
+    # Connect generation to playback
     def _generate(prompts, n_sounds, min_duration, max_duration,
                   progress=gr.Progress(track_tqdm=True)):
         dir_tmp = generate_sounds(prompts, n_sounds, min_duration,
-                                  max_duration, progress)
+                                 max_duration, progress)
         return dir_tmp, f"Generated {n_sounds} sounds in {dir_tmp}", dir_tmp
 
     generate_btn.click(
-        _generate, inputs=[prompts_box, n_sounds, min_duration, max_duration],
+        _generate, 
+        inputs=[prompts_box, n_sounds, min_duration, max_duration],
         outputs=[output_dir, gen_progress, dir_input]
     )
+
 
 if __name__ == "__main__":
     demo.launch(server_name="10.40.49.109")
