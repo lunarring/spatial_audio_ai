@@ -324,6 +324,14 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         
         # Orientation mapping parameters
         self.orientation_mapping_mode = "basis_fourier"  # Available modes: quaternion_simple, quaternion_complex, basis_fourier, basis_chebyshev, basis_legendre, basis_wavelets, basis_radial
+        
+        # Frequency filtering parameters
+        self.frequency_filter_enabled = True
+        self.filter_type = "lowpass"  # Options: "lowpass", "highpass", "bandpass", "notch", "custom"
+        self.filter_cutoff_low = 1000.0  # Hz - low cutoff for bandpass/highpass
+        self.filter_cutoff_high = 4000.0  # Hz - high cutoff for bandpass/lowpass
+        self.filter_rolloff = 12  # dB/octave (6, 12, 18, 24)
+        self.custom_harmonic_mask = np.ones(num_harmonics)  # Custom per-harmonic multipliers
 
     def query(self, tick: int) -> SoundMessage:
         """Generate next chunk with smooth parameter transitions and multiple harmonics."""
@@ -359,12 +367,18 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
             (1 - self.harmonic_smoothing) * self.target_harmonic_amplitudes
         )
         
+        # Apply frequency filtering if enabled
+        if self.frequency_filter_enabled:
+            filtered_amplitudes = self._apply_frequency_filter(self.current_harmonic_amplitudes)
+        else:
+            filtered_amplitudes = self.current_harmonic_amplitudes
+        
         # Generate multi-harmonic sound chunk
         sound_chunk = np.zeros(CHUNKSIZE, dtype=float)
         
         for i in range(self.num_harmonics):
             harmonic_freq = self.current_frequency * (i + 1)  # Fundamental, 2nd, 3rd harmonics...
-            harmonic_amplitude = self.current_amplitude * self.current_harmonic_amplitudes[i]
+            harmonic_amplitude = self.current_amplitude * filtered_amplitudes[i]
             
             # Generate harmonic with phase continuity
             instantaneous_phase = (
@@ -811,6 +825,126 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         yaw = np.arctan2(siny_cosp, cosy_cosp)
         
         return roll, pitch, yaw
+
+    def _apply_frequency_filter(self, amplitudes):
+        """Apply frequency filtering to harmonic amplitudes."""
+        filtered_amps = amplitudes.copy()
+        
+        if self.filter_type == "custom":
+            # Use custom harmonic mask
+            filtered_amps *= self.custom_harmonic_mask
+        else:
+            # Calculate frequency for each harmonic
+            harmonic_freqs = np.array([
+                self.current_frequency * (i + 1) for i in range(self.num_harmonics)
+            ])
+            
+            # Apply frequency-based filtering
+            filter_mask = self._calculate_filter_mask(harmonic_freqs)
+            filtered_amps *= filter_mask
+        
+        return filtered_amps
+    
+    def _calculate_filter_mask(self, frequencies):
+        """Calculate filter mask based on frequencies and filter parameters."""
+        mask = np.ones_like(frequencies)
+        
+        if self.filter_type == "lowpass":
+            # Low-pass filter: attenuate frequencies above cutoff
+            cutoff = self.filter_cutoff_high
+            for i, freq in enumerate(frequencies):
+                if freq > cutoff:
+                    # Calculate attenuation based on rolloff
+                    octaves_above = np.log2(freq / cutoff)
+                    attenuation_db = -self.filter_rolloff * octaves_above
+                    attenuation_linear = 10 ** (attenuation_db / 20)
+                    mask[i] = max(0.0, attenuation_linear)
+        
+        elif self.filter_type == "highpass":
+            # High-pass filter: attenuate frequencies below cutoff
+            cutoff = self.filter_cutoff_low
+            for i, freq in enumerate(frequencies):
+                if freq < cutoff:
+                    # Calculate attenuation based on rolloff
+                    octaves_below = np.log2(cutoff / freq)
+                    attenuation_db = -self.filter_rolloff * octaves_below
+                    attenuation_linear = 10 ** (attenuation_db / 20)
+                    mask[i] = max(0.0, attenuation_linear)
+        
+        elif self.filter_type == "bandpass":
+            # Band-pass filter: keep frequencies between low and high cutoffs
+            low_cutoff = self.filter_cutoff_low
+            high_cutoff = self.filter_cutoff_high
+            for i, freq in enumerate(frequencies):
+                if freq < low_cutoff:
+                    octaves_below = np.log2(low_cutoff / freq)
+                    attenuation_db = -self.filter_rolloff * octaves_below
+                    attenuation_linear = 10 ** (attenuation_db / 20)
+                    mask[i] = max(0.0, attenuation_linear)
+                elif freq > high_cutoff:
+                    octaves_above = np.log2(freq / high_cutoff)
+                    attenuation_db = -self.filter_rolloff * octaves_above
+                    attenuation_linear = 10 ** (attenuation_db / 20)
+                    mask[i] = max(0.0, attenuation_linear)
+        
+        elif self.filter_type == "notch":
+            # Notch filter: attenuate frequencies around a center frequency
+            center_freq = (self.filter_cutoff_low + self.filter_cutoff_high) / 2
+            bandwidth = self.filter_cutoff_high - self.filter_cutoff_low
+            for i, freq in enumerate(frequencies):
+                # Distance from center frequency
+                freq_distance = abs(freq - center_freq)
+                if freq_distance < bandwidth / 2:
+                    # Attenuate based on distance from center
+                    attenuation_factor = 1 - (freq_distance / (bandwidth / 2))
+                    attenuation_db = -self.filter_rolloff * attenuation_factor
+                    attenuation_linear = 10 ** (attenuation_db / 20)
+                    mask[i] = max(0.0, attenuation_linear)
+        
+        return mask
+    
+    def set_frequency_filter(self, enabled: bool, filter_type: str = None, 
+                           cutoff_low: float = None, cutoff_high: float = None, 
+                           rolloff: int = None):
+        """Configure frequency filtering parameters."""
+        self.frequency_filter_enabled = enabled
+        
+        if filter_type is not None:
+            valid_types = ["lowpass", "highpass", "bandpass", "notch", "custom"]
+            if filter_type in valid_types:
+                self.filter_type = filter_type
+            else:
+                raise ValueError(f"Filter type must be one of: {valid_types}")
+        
+        if cutoff_low is not None:
+            self.filter_cutoff_low = cutoff_low
+        
+        if cutoff_high is not None:
+            self.filter_cutoff_high = cutoff_high
+        
+        if rolloff is not None:
+            if rolloff in [6, 12, 18, 24]:
+                self.filter_rolloff = rolloff
+            else:
+                raise ValueError("Rolloff must be 6, 12, 18, or 24 dB/octave")
+    
+    def set_custom_harmonic_mask(self, mask: np.ndarray):
+        """Set custom per-harmonic amplitude multipliers (0.0 = mute, 1.0 = full)."""
+        if len(mask) == self.num_harmonics:
+            self.custom_harmonic_mask = np.clip(mask, 0.0, 1.0)
+        else:
+            raise ValueError(f"Mask must have {self.num_harmonics} elements")
+    
+    def get_frequency_filter_info(self):
+        """Get current frequency filter configuration."""
+        return {
+            "enabled": self.frequency_filter_enabled,
+            "type": self.filter_type,
+            "cutoff_low": self.filter_cutoff_low,
+            "cutoff_high": self.filter_cutoff_high,
+            "rolloff": self.filter_rolloff,
+            "custom_mask": self.custom_harmonic_mask.copy()
+        }
 
     def get_position(self):
         """Get current smoothed position."""

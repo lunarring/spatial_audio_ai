@@ -301,6 +301,31 @@ class HarmonicMotionController:
             harmonic_obj.set_orientation_mapping_mode(mode)
         return f"Orientation Mapping: {mode}"
     
+    def update_frequency_filter(self, enabled, filter_type, cutoff_low, cutoff_high, rolloff):
+        """Update frequency filtering for all objects."""
+        for harmonic_obj in self.harmonic_objects.values():
+            harmonic_obj.set_frequency_filter(
+                enabled=enabled,
+                filter_type=filter_type,
+                cutoff_low=cutoff_low,
+                cutoff_high=cutoff_high,
+                rolloff=rolloff
+            )
+        status = "Enabled" if enabled else "Disabled"
+        return f"Filter: {status} ({filter_type}, {cutoff_low}-{cutoff_high}Hz, {rolloff}dB/oct)"
+    
+    def set_custom_harmonic_mask(self, mask_values):
+        """Set custom harmonic mask for all objects."""
+        # Parse mask values (comma-separated string to array)
+        try:
+            mask = np.array([float(x.strip()) for x in mask_values.split(',')])
+            for harmonic_obj in self.harmonic_objects.values():
+                if len(mask) == harmonic_obj.num_harmonics:
+                    harmonic_obj.set_custom_harmonic_mask(mask)
+            return f"Custom Mask: [{', '.join([f'{x:.2f}' for x in mask])}]"
+        except:
+            return "Error: Invalid mask format (use comma-separated numbers)"
+    
     def toggle_mute(self, is_muted):
         """Toggle mute on/off for all objects."""
         self.is_muted = is_muted
@@ -360,9 +385,11 @@ class HarmonicMotionController:
             harmonic_decay = first_obj.harmonic_decay
             num_harmonics = first_obj.num_harmonics
             orientation_mode = first_obj.orientation_mapping_mode
+            filter_info = first_obj.get_frequency_filter_info()
         else:
             smoothing = harmonic_decay = num_harmonics = 0
             orientation_mode = "None"
+            filter_info = {"enabled": False, "type": "none"}
         
         status = f"""Status: {'Running' if self.is_running else 'Stopped'}
 Mute: {mute_status}
@@ -378,6 +405,12 @@ Global Settings:
   Harmonics: {num_harmonics}
   Harmonic Decay: {harmonic_decay:.2f}
   Orientation Mapping: {orientation_mode}
+  
+Frequency Filter:
+  Enabled: {filter_info['enabled']}
+  Type: {filter_info['type']}
+  Cutoffs: {filter_info['cutoff_low']:.0f} - {filter_info['cutoff_high']:.0f} Hz
+  Rolloff: {filter_info['rolloff']} dB/octave
 
 Rigid Body Details:
 {chr(10).join(body_details)}"""
@@ -464,6 +497,43 @@ def create_interface():
                     label="Orientation Mapping Mode"
                 )
                 
+                gr.Markdown("### Frequency Filtering")
+                gr.Markdown(
+                    "**Filter harmonics** to remove unwanted frequencies (e.g., remove higher harmonics)"
+                )
+                
+                filter_enabled_checkbox = gr.Checkbox(
+                    label="Enable Frequency Filter", value=True
+                )
+                
+                filter_type_dropdown = gr.Dropdown(
+                    choices=["lowpass", "highpass", "bandpass", "notch", "custom"],
+                    value="lowpass",
+                    label="Filter Type"
+                )
+                
+                filter_cutoff_low_slider = gr.Slider(
+                    minimum=50.0, maximum=10000.0, value=1000.0, step=50.0,
+                    label="Low Cutoff Frequency (Hz)"
+                )
+                
+                filter_cutoff_high_slider = gr.Slider(
+                    minimum=100.0, maximum=20000.0, value=4000.0, step=100.0,
+                    label="High Cutoff Frequency (Hz)"
+                )
+                
+                filter_rolloff_dropdown = gr.Dropdown(
+                    choices=[6, 12, 18, 24],
+                    value=12,
+                    label="Filter Rolloff (dB/octave)"
+                )
+                
+                custom_mask_textbox = gr.Textbox(
+                    label="Custom Harmonic Mask (comma-separated, 0.0=mute, 1.0=full)",
+                    value="1.0, 1.0, 0.5, 0.3, 0.1, 0.05",
+                    placeholder="1.0, 0.8, 0.6, 0.4, 0.2, 0.1"
+                )
+                
                 gr.Markdown("### Spatial Position")
                 gr.Markdown(
                     "**Position:** Motion Controlled (Rigid Body X,Z coordinates)"
@@ -507,6 +577,12 @@ def create_interface():
                 )
                 orientation_mapping_output = gr.Textbox(
                     label="Orientation Mapping Status", value="Orientation Mapping: basis_fourier"
+                )
+                filter_output = gr.Textbox(
+                    label="Filter Status", value="Filter: Enabled (lowpass, 1000-4000Hz, 12dB/oct)"
+                )
+                custom_mask_output = gr.Textbox(
+                    label="Custom Mask Status", value="Custom Mask: [1.00, 1.00, 0.50, 0.30, 0.10, 0.05]"
                 )
                 scale_output = gr.Textbox(
                     label="Position Scale Status", value="Position Scale: 1.00"
@@ -578,6 +654,56 @@ def create_interface():
             controller.update_orientation_mapping,
             inputs=orientation_mapping_dropdown,
             outputs=orientation_mapping_output
+        )
+        
+        # Frequency filter event handlers
+        def update_filter_wrapper(*args):
+            return controller.update_frequency_filter(*args)
+        
+        filter_enabled_checkbox.change(
+            update_filter_wrapper,
+            inputs=[filter_enabled_checkbox, filter_type_dropdown, 
+                   filter_cutoff_low_slider, filter_cutoff_high_slider, 
+                   filter_rolloff_dropdown],
+            outputs=filter_output
+        )
+        
+        filter_type_dropdown.change(
+            update_filter_wrapper,
+            inputs=[filter_enabled_checkbox, filter_type_dropdown, 
+                   filter_cutoff_low_slider, filter_cutoff_high_slider, 
+                   filter_rolloff_dropdown],
+            outputs=filter_output
+        )
+        
+        filter_cutoff_low_slider.change(
+            update_filter_wrapper,
+            inputs=[filter_enabled_checkbox, filter_type_dropdown, 
+                   filter_cutoff_low_slider, filter_cutoff_high_slider, 
+                   filter_rolloff_dropdown],
+            outputs=filter_output
+        )
+        
+        filter_cutoff_high_slider.change(
+            update_filter_wrapper,
+            inputs=[filter_enabled_checkbox, filter_type_dropdown, 
+                   filter_cutoff_low_slider, filter_cutoff_high_slider, 
+                   filter_rolloff_dropdown],
+            outputs=filter_output
+        )
+        
+        filter_rolloff_dropdown.change(
+            update_filter_wrapper,
+            inputs=[filter_enabled_checkbox, filter_type_dropdown, 
+                   filter_cutoff_low_slider, filter_cutoff_high_slider, 
+                   filter_rolloff_dropdown],
+            outputs=filter_output
+        )
+        
+        custom_mask_textbox.change(
+            controller.set_custom_harmonic_mask,
+            inputs=custom_mask_textbox,
+            outputs=custom_mask_output
         )
         
         scale_slider.change(
