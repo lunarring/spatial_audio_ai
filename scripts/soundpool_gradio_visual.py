@@ -28,17 +28,18 @@ except ImportError as e:
 
 # Default prompts (hybrid/mixed)
 default_prompts = [
-    'forest creatures playing metallic instruments',
-    'digital rainstorm on cybernetic landscape',
-    'organic heartbeat with electronic processing',
-    'bird calls transformed through vocoder',
-    'underwater cave with resonant frequencies',
-    'human breath controlling synthesizer parameters',
-    'insect swarm with granular synthesis',
-    'stone temple with electromagnetic resonance',
-    'crackling fire with ambient string quartet',
-    'shamanic ritual with analog oscillators'
+    "Dripping water echoing into a shallow stone pool.",
+    "Slow, reverberant footsteps on damp cavern floor.",
+    "Gentle underground stream flowing over pebbles.",
+    "Breeze weaving through stalactites like chimes.",
+    "Distant bat echolocation clicks and wing flutters.",
+    "Low, resonant drone with shifting loose stones.",
+    "Sharp crystalline tones as stone taps crystal.",
+    "Soft, pulsing rumble of the cavern breathing.",
+    "Faint human whispers carried by echoing walls.",
+    "Distant waterfall roar swelling then receding."
 ]
+
 
 
 class PygameVisualRenderer:
@@ -129,9 +130,6 @@ class PygameVisualRenderer:
         # Draw spatial area boundary
         self._draw_boundary(box_size)
         
-        # Draw speakers
-        self._draw_speakers()
-        
         # Draw center point
         center_screen = self.world_to_screen((0, 0))
         pygame.draw.circle(self.screen, (255, 255, 255), center_screen, 4)
@@ -162,21 +160,7 @@ class PygameVisualRenderer:
         ]
         pygame.draw.polygon(self.screen, (100, 120, 150), corners, 2)
     
-    def _draw_speakers(self):
-        """Draw speaker positions"""
-        for i, speaker_pos in enumerate(self.speaker_positions):
-            x, y = self.world_to_screen(speaker_pos)
-            
-            # Speaker circle
-            pygame.draw.circle(self.screen, (150, 150, 170), (x, y), 10)
-            pygame.draw.circle(self.screen, (200, 200, 220), (x, y), 10, 2)
-            
-            # Speaker number
-            if self.font:
-                text = self.font.render(str(i+1), True, (255, 255, 255))
-                text_rect = text.get_rect(center=(x, y))
-                self.screen.blit(text, text_rect)
-    
+
     def _update_and_draw_objects_from_snapshot(self, snapshot):
         """Draw objects from snapshot data - positions are already correct"""
         for i, obj_data in enumerate(snapshot):
@@ -239,20 +223,26 @@ class PygameVisualRenderer:
         info_lines = [
             f"Active Sounds: {len(snapshot)}",
             f"Spatial Area: {box_size:.1f}x{box_size:.1f}",
-            "Speakers: 12-channel surround",
             "",
-            "Legend:",
-            "Large circles = Moving sounds",
-            "Small circles = Static sounds",
-            "Numbered circles = Speakers"
+            "Sound Objects:",
         ]
+        
+        # Add info about each object
+        for i, obj_data in enumerate(snapshot[:6]):  # Show first 6 objects
+            obj_type = "●" if obj_data['is_moving'] else "○"
+            pos = obj_data['position']
+            info_lines.append(f"{obj_type} #{obj_data['index']}: "
+                            f"({pos[0]:.1f},{pos[1]:.1f})")
+        
+        if len(snapshot) > 6:
+            info_lines.append(f"... and {len(snapshot)-6} more")
         
         y_pos = 20
         for line in info_lines:
             if line:  # Skip empty lines
                 text = self.font.render(line, True, (200, 200, 200))
                 self.screen.blit(text, (20, y_pos))
-            y_pos += 25
+            y_pos += 22
     
     def cleanup(self):
         """Clean up pygame resources"""
@@ -264,16 +254,25 @@ class PygameVisualRenderer:
         """Thread-safe update of scene data"""
         with self.snapshot_lock:
             self.scene_snapshot = []
+            print(f"DEBUG: Scene has {len(sound_objects)} total sound objects")
             
             for i, obj in enumerate(sound_objects):
-                # Get the actual current position from the sound object
+                print(f"  Object {i}: {type(obj).__name__}")
+                
+                # IMPORTANT: Call update_position() on ALL objects since all are dynamic
+                if hasattr(obj, 'update_position'):
+                    obj.update_position()  # Update position for ALL objects
+                    print(f"    Dynamic object - position updated to: {obj.position}")
+                
+                # Now get the current position from the sound object
                 if hasattr(obj, 'position') and obj.position is not None:
                     # Create a safe copy of object data with ACTUAL position
                     obj_data = {
                         'position': np.copy(obj.position),
                         'is_moving': isinstance(obj, SO_PlaybackCircularMove),
                         'id': id(obj),
-                        'obj_type': type(obj).__name__
+                        'obj_type': type(obj).__name__,
+                        'index': i  # Add index for debugging
                     }
                     
                     # For moving objects, copy their parameters for trail rendering
@@ -282,10 +281,16 @@ class PygameVisualRenderer:
                             'radius': getattr(obj, 'radius', 5.0),
                             'speed': getattr(obj, 'speed', 1.0),
                             'direction': getattr(obj, 'direction', 1),
-                            'center': getattr(obj, 'center', np.array([0.0, 0.0]))
+                            'center': getattr(obj, 'center', 
+                                            np.array([0.0, 0.0]))
                         })
                     
                     self.scene_snapshot.append(obj_data)
+                    print(f"    ✓ Added to visualization: pos={obj_data['position']}")
+                else:
+                    print("    ✗ No position attribute - skipping")
+            
+            print(f"DEBUG: Visualization will show {len(self.scene_snapshot)} objects")
 
 
 # Global visualization control
