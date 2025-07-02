@@ -16,16 +16,16 @@ from spatial_audio_ai.tools.spatializer import (
 
 # Default prompts (hybrid/mixed)
 default_prompts = [
-    'forest creatures playing metallic instruments',
-    'digital rainstorm on cybernetic landscape',
-    'organic heartbeat with electronic processing',
-    'bird calls transformed through vocoder',
-    'underwater cave with resonant frequencies',
-    'human breath controlling synthesizer parameters',
-    'insect swarm with granular synthesis',
-    'stone temple with electromagnetic resonance',
-    'crackling fire with ambient string quartet',
-    'shamanic ritual with analog oscillators'
+"Dripping water echoing into a shallow stone pool.",
+"Slow, reverberant footsteps on damp cavern floor.",
+"Gentle underground stream flowing over pebbles.",
+"Breeze weaving through stalactites like chimes.",
+"Distant bat echolocation clicks and wing flutters.",
+"Low, resonant drone with shifting loose stones.",
+"Sharp crystalline tones as stone taps crystal.",
+"Soft, pulsing rumble of the cavern “breathing.”",
+"Faint human whispers carried by echoing walls.",
+"Distant waterfall roar swelling then receding."
 ]
 
 
