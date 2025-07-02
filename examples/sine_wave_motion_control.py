@@ -46,11 +46,11 @@ class SineWaveMotionController:
         self.rigid_body = None
         self.setup_optitrack()
         
-        # Frequency mapping parameters (0m = 50Hz, 2m = 15KHz)
+        # Frequency mapping parameters (0m = 62.5Hz, 2m = 500Hz) - 3 octaves
         self.min_height = 0.0
         self.max_height = 2.0
-        self.min_frequency = 50.0
-        self.max_frequency = 15000.0
+        self.min_frequency = 62.5  # Base frequency
+        self.max_frequency = 500.0  # 3 octaves higher (62.5 * 2^3)
         self.current_height = 0.0
         
     def setup_optitrack(self):
@@ -111,15 +111,15 @@ class SineWaveMotionController:
                     self.current_height, self.min_height, self.max_height
                 )
                 
-                # Linear interpolation
+                # Exponential (octave-based) interpolation
                 height_ratio = (
                     (height_clamped - self.min_height) / 
                     (self.max_height - self.min_height)
                 )
-                frequency = (
-                    self.min_frequency + 
-                    height_ratio * (self.max_frequency - self.min_frequency)
-                )
+                # Calculate frequency using exponential mapping (octaves)
+                # frequency = min_freq * 2^(height_ratio * num_octaves)
+                num_octaves = np.log2(self.max_frequency / self.min_frequency)
+                frequency = self.min_frequency * (2 ** (height_ratio * num_octaves))
                 
                 # Update sine wave frequency
                 self.sine_object.set_frequency(frequency)
@@ -272,7 +272,7 @@ def create_interface():
         gr.Markdown(
             "Control a real-time generated sine wave with spatial positioning. "
             "**Frequency is controlled by OptiTrack rigid body 'B' height** "
-            "(0m = 50Hz, 2m = 15KHz)"
+            "(0m = 62.5Hz, 2m = 500Hz, 3 octaves exponential mapping)"
         )
         
         with gr.Row():
@@ -289,7 +289,7 @@ def create_interface():
                 # Parameter controls (no frequency slider - motion controlled)
                 gr.Markdown("### Audio Parameters")
                 gr.Markdown(
-                    "**Frequency:** Motion Controlled (Rigid Body 'B' Height)"
+                    "**Frequency:** Motion Controlled (Rigid Body 'B' Height - 3 Octaves)"
                 )
                 
                 amp_slider = gr.Slider(
@@ -411,8 +411,8 @@ if __name__ == "__main__":
     print("Starting Real-time Sine Wave Motion Control Interface")
     print(f"Audio settings: {SAMPLING_RATE} Hz, {CHUNKSIZE} samples per chunk")
     print("Frequency controlled by OptiTrack Rigid Body 'B' height:")
-    print("  0m height = 50 Hz")
-    print("  2m height = 15,000 Hz")
+    print("  0m height = 62.5 Hz")
+    print("  2m height = 500 Hz (3 octaves, exponential mapping)")
     print("Open your web browser to control the sine wave parameters")
     
     interface = create_interface()
