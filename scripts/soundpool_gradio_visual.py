@@ -259,18 +259,19 @@ class PygameVisualRenderer:
             for i, obj in enumerate(sound_objects):
                 print(f"  Object {i}: {type(obj).__name__}")
                 
-                # IMPORTANT: Call update_position() on ALL objects since all are dynamic
-                if hasattr(obj, 'update_position'):
-                    obj.update_position()  # Update position for ALL objects
-                    print(f"    Dynamic object - position updated to: {obj.position}")
-                
-                # Now get the current position from the sound object
-                if hasattr(obj, 'position') and obj.position is not None:
-                    # Create a safe copy of object data with ACTUAL position
+                # Get position using get_position() method
+                if hasattr(obj, 'get_position'):
+                    position = obj.get_position()
+                    print(f"    Position from get_position(): {position}")
+                    
+                    # Get unique ID from _id field
+                    obj_id = getattr(obj, '_id', id(obj))  # Fallback to id(obj)
+                    
+                    # Create a safe copy of object data
                     obj_data = {
-                        'position': np.copy(obj.position),
+                        'position': np.copy(position),
                         'is_moving': isinstance(obj, SO_PlaybackCircularMove),
-                        'id': id(obj),
+                        'id': obj_id,
                         'obj_type': type(obj).__name__,
                         'index': i  # Add index for debugging
                     }
@@ -286,11 +287,13 @@ class PygameVisualRenderer:
                         })
                     
                     self.scene_snapshot.append(obj_data)
-                    print(f"    ✓ Added to visualization: pos={obj_data['position']}")
+                    print(f"    ✓ Added to visualization: "
+                          f"id={obj_id}, pos={position}")
                 else:
-                    print("    ✗ No position attribute - skipping")
+                    print("    ✗ No get_position method - skipping")
             
-            print(f"DEBUG: Visualization will show {len(self.scene_snapshot)} objects")
+            print(f"DEBUG: Visualization will show "
+                  f"{len(self.scene_snapshot)} objects")
 
 
 # Global visualization control
@@ -436,7 +439,7 @@ def play_spatial_soundpool(
         start_time = time.time()
         duration_seconds = duration_minutes * 60
         last_visual_update = 0
-        visual_update_interval = 0.2  # Update visualization every 200ms
+        visual_update_interval = 0.1  # Update visualization every 100ms for smooth movement
         
         for j, chunk in enumerate(player.scene.run()):
             if playback_stop_flag:
@@ -462,7 +465,7 @@ def play_spatial_soundpool(
             chunk = np.clip(chunk, -1, 1)
             player.sound_streamer.send(chunk)
             
-            # Update visualization data periodically (thread-safe)
+            # Update visualization data more frequently for smooth movement
             current_time = time.time()
             if (visual_started and 
                 current_time - last_visual_update > visual_update_interval):
@@ -539,9 +542,9 @@ with gr.Blocks() as demo:
             label="Number of sounds to generate", value=10, precision=0
         )
         min_duration = gr.Slider(2, 20, value=3, step=0.1,
-                                label="Minimum Sound Duration (seconds)")
+                                 label="Minimum Sound Duration (seconds)")
         max_duration = gr.Slider(2, 20, value=8, step=0.1,
-                                label="Maximum Sound Duration (seconds)")
+                                 label="Maximum Sound Duration (seconds)")
         generate_btn = gr.Button("Generate Sounds")
         output_dir = gr.Textbox(label="Output Directory", interactive=False)
         gen_progress = gr.Textbox(label="Status", interactive=False)
@@ -606,7 +609,7 @@ with gr.Blocks() as demo:
         
         with gr.Row():
             play_btn = gr.Button("Start Spatial Playback + Pygame Visual")
-            stop_btn = gr.Button("Stop Playback")
+        stop_btn = gr.Button("Stop Playback")
         
         playback_status = gr.Textbox(label="Playback Status", 
                                     interactive=False)
@@ -636,7 +639,7 @@ with gr.Blocks() as demo:
     def _generate(prompts, n_sounds, min_duration, max_duration,
                   progress=gr.Progress(track_tqdm=True)):
         dir_tmp = generate_sounds(prompts, n_sounds, min_duration,
-                                 max_duration, progress)
+                                  max_duration, progress)
         return dir_tmp, f"Generated {n_sounds} sounds in {dir_tmp}", dir_tmp
 
     generate_btn.click(

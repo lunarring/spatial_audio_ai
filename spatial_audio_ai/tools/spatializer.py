@@ -10,6 +10,7 @@ import os
 import random
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
 from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
+import uuid
 
 sd.default.blocksize = BLOCKSIZE
 CHUNKSIZE = BLOCKSIZE*4
@@ -47,6 +48,7 @@ class SO_Playback(SoundObjectBase):
         self.sound = sound
         self.first_tick = None
         self.position = position
+        self._id = uuid.uuid4()
 
     def query(self, tick: int) -> SoundMessage:
         self.update_position()
@@ -65,6 +67,9 @@ class SO_Playback(SoundObjectBase):
 
     def set_position(self, new_position: np.ndarray):
         self.position = new_position
+
+    def get_position(self):
+        return self.position
 
 
 class SO_PlaybackCircularMove(SO_Playback):
