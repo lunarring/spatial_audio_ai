@@ -53,6 +53,10 @@ class SineWaveMotionController:
         self.max_frequency = 500.0  # 3 octaves higher (62.5 * 2^3)
         self.current_height = 0.0
         
+        # Position mapping parameters
+        self.current_position = np.array([0.0, 0.0])  # X, Z coordinates
+        self.position_scale = 1.0  # Scaling factor for position
+        
     def setup_optitrack(self):
         """Initialize OptiTrack connection and rigid body."""
         try:
@@ -87,8 +91,8 @@ class SineWaveMotionController:
             self.motive = None
             self.rigid_body = None
     
-    def update_frequency_from_motion(self):
-        """Update frequency based on rigid body height."""
+    def update_from_motion(self):
+        """Update frequency and position based on rigid body motion."""
         if self.rigid_body is None or self.motive is None:
             return 440.0  # Default frequency if no tracking
             
@@ -103,9 +107,18 @@ class SineWaveMotionController:
             position = self.rigid_body.positions.get_last()
             
             if position is not None:
-                # Use Y coordinate (height) - index 1
-                self.current_height = position[1]
+                # Extract coordinates: X, Y (height), Z
+                x_pos = position[0]  # X coordinate
+                self.current_height = position[1]  # Y coordinate (height)
+                z_pos = position[2]  # Z coordinate
                 
+                # Update position (X and Z coordinates map to sound object X and Y)
+                # Apply scaling factor to the position
+                self.current_position = np.array([x_pos, z_pos])
+                scaled_position = self.current_position * self.position_scale
+                self.sine_object.set_position(scaled_position)
+                
+                # Update frequency based on height (Y coordinate)
                 # Clamp height to valid range
                 height_clamped = np.clip(
                     self.current_height, self.min_height, self.max_height
@@ -166,8 +179,8 @@ class SineWaveMotionController:
                 if not self.is_running:
                     break
                 
-                # Update frequency from motion data
-                self.update_frequency_from_motion()
+                # Update frequency and position from motion data
+                self.update_from_motion()
                     
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)
@@ -198,19 +211,14 @@ class SineWaveMotionController:
         self.sine_object.set_phase_offset(phase)
         return f"Phase: {phase:.2f} rad"
     
-    def update_position_x(self, x):
-        """Update X position."""
-        current_pos = self.sine_object.get_position()
-        new_pos = np.array([x, current_pos[1]], dtype=float)
-        self.sine_object.set_position(new_pos)
-        return f"X Position: {x:.1f}"
-    
-    def update_position_y(self, y):
-        """Update Y position."""
-        current_pos = self.sine_object.get_position()
-        new_pos = np.array([current_pos[0], y], dtype=float)
-        self.sine_object.set_position(new_pos)
-        return f"Y Position: {y:.1f}"
+    def update_position_scale(self, scale):
+        """Update position scaling factor."""
+        self.position_scale = scale
+        # Re-apply the current position with new scaling
+        if hasattr(self, 'current_position'):
+            scaled_position = self.current_position * self.position_scale
+            self.sine_object.set_position(scaled_position)
+        return f"Position Scale: {scale:.2f}"
     
     def update_smoothing(self, smoothing):
         """Update smoothing factor."""
@@ -243,14 +251,14 @@ Mute: {mute_status}
 OptiTrack: {tracking_status}
 
 Motion Control:
-  Current Height: {self.current_height:.3f} m
+  Rigid Body Position: ({self.current_position[0]:.3f}, {self.current_height:.3f}, {self.current_position[1]:.3f}) m
   Frequency Range: {freq_range}
 
 Target Values:
-  Frequency: {self.sine_object.target_frequency:.1f} Hz (motion controlled)
+  Frequency: {self.sine_object.target_frequency:.1f} Hz (Y-axis controlled)
   Amplitude: {self.unmuted_amplitude:.2f} (stored)
   Phase: {self.sine_object.target_phase_offset:.2f} rad
-  Position: ({target_pos[0]:.1f}, {target_pos[1]:.1f})
+  Position: ({target_pos[0]:.1f}, {target_pos[1]:.1f}) (X,Z-axis controlled)
 
 Current Values (Smoothed):
   Frequency: {self.sine_object.current_frequency:.1f} Hz
@@ -272,7 +280,8 @@ def create_interface():
         gr.Markdown(
             "Control a real-time generated sine wave with spatial positioning. "
             "**Frequency is controlled by OptiTrack rigid body 'B' height** "
-            "(0m = 62.5Hz, 2m = 500Hz, 3 octaves exponential mapping)"
+            "(0m = 62.5Hz, 2m = 500Hz, 3 octaves exponential mapping). "
+            "**Position is controlled by X and Z coordinates** of the rigid body."
         )
         
         with gr.Row():
@@ -303,15 +312,18 @@ def create_interface():
                 )
                 
                 gr.Markdown("### Spatial Position")
+                gr.Markdown(
+                    "**Position:** Motion Controlled (Rigid Body 'B' X,Z coordinates)"
+                )
                 
                 x_slider = gr.Slider(
                     minimum=-10, maximum=10, value=0, step=0.1,
-                    label="X Position"
+                    label="X Position Override (manual control)"
                 )
                 
                 y_slider = gr.Slider(
                     minimum=-10, maximum=10, value=0, step=0.1,
-                    label="Y Position"
+                    label="Y Position Override (manual control)"
                 )
                 
                 gr.Markdown("### Smoothing Control")
@@ -410,10 +422,10 @@ def create_interface():
 if __name__ == "__main__":
     print("Starting Real-time Sine Wave Motion Control Interface")
     print(f"Audio settings: {SAMPLING_RATE} Hz, {CHUNKSIZE} samples per chunk")
-    print("Frequency controlled by OptiTrack Rigid Body 'B' height:")
-    print("  0m height = 62.5 Hz")
-    print("  2m height = 500 Hz (3 octaves, exponential mapping)")
-    print("Open your web browser to control the sine wave parameters")
+    print("Motion control by OptiTrack Rigid Body 'B':")
+    print("  Y-axis (height): 0m = 62.5 Hz, 2m = 500 Hz (3 octaves, exponential)")
+    print("  X-axis and Z-axis: Control spatial position of sound object")
+    print("Open your web browser to control additional sine wave parameters")
     
     interface = create_interface()
     interface.launch(
