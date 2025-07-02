@@ -85,6 +85,10 @@ class PygameVisualRenderer:
         # Font
         self.font = None
         
+        # Scene data snapshot (thread-safe)
+        self.scene_snapshot = []
+        self.snapshot_lock = threading.Lock()
+        
     def initialize(self):
         """Initialize pygame"""
         if not pygame:
@@ -109,8 +113,8 @@ class PygameVisualRenderer:
         y = int(self.center_y - world_pos[1] * self.scale)  # Flip Y
         return (x, y)
     
-    def update_frame(self, scene, box_size):
-        """Update and draw a single frame"""
+    def update_frame(self, box_size):
+        """Update and draw a single frame using snapshot data"""
         if not self.running or not self.screen:
             return False
             
@@ -133,20 +137,19 @@ class PygameVisualRenderer:
         center_screen = self.world_to_screen((0, 0))
         pygame.draw.circle(self.screen, (255, 255, 255), center_screen, 4)
         
-        # Get and update sound objects
-        sound_objects = []
-        if hasattr(scene, 'sound_objects'):
-            sound_objects = scene.sound_objects
-            
+        # Get scene snapshot safely
+        with self.snapshot_lock:
+            current_snapshot = list(self.scene_snapshot)
+        
         # Update positions and draw objects
-        self._update_and_draw_objects(sound_objects)
+        self._update_and_draw_objects_from_snapshot(current_snapshot)
         
         # Draw info panel
-        self._draw_info_panel(sound_objects, box_size)
+        self._draw_info_panel(current_snapshot, box_size)
         
         # Update display
         pygame.display.flip()
-        self.clock.tick(30)  # 30 FPS
+        self.clock.tick(10)  # 10 FPS to reduce load
         
         return True
     
@@ -175,25 +178,22 @@ class PygameVisualRenderer:
                 text_rect = text.get_rect(center=(x, y))
                 self.screen.blit(text, text_rect)
     
-    def _update_and_draw_objects(self, sound_objects):
-        """Update positions and draw all sound objects"""
+    def _update_and_draw_objects_from_snapshot(self, snapshot):
+        """Update positions and draw objects from snapshot data"""
         current_time = time.time()
         
-        for i, sound_obj in enumerate(sound_objects):
-            if not hasattr(sound_obj, 'position'):
-                continue
-            
+        for i, obj_data in enumerate(snapshot):
             # Update position for moving objects
-            if isinstance(sound_obj, SO_PlaybackCircularMove):
-                self._update_circular_motion(sound_obj, current_time)
+            if obj_data['is_moving']:
+                self._update_circular_motion_snapshot(obj_data, current_time)
             
             # Get current position
-            pos = sound_obj.position
+            pos = obj_data['position']
             screen_pos = self.world_to_screen(pos)
             color = self.colors[i % len(self.colors)]
             
             # Update trail
-            obj_id = id(sound_obj)
+            obj_id = obj_data['id']
             if obj_id not in self.trails:
                 self.trails[obj_id] = []
             self.trails[obj_id].append(screen_pos)
@@ -204,8 +204,7 @@ class PygameVisualRenderer:
             self._draw_trail(obj_id, color)
             
             # Draw sound object
-            is_moving = isinstance(sound_obj, SO_PlaybackCircularMove)
-            radius = 15 if is_moving else 10
+            radius = 15 if obj_data['is_moving'] else 10
             
             # Draw with glow effect
             for r in range(radius + 5, radius - 1, -1):
@@ -215,33 +214,36 @@ class PygameVisualRenderer:
             
             # Main circle
             pygame.draw.circle(self.screen, color, screen_pos, radius)
-            pygame.draw.circle(self.screen, (255, 255, 255), screen_pos, radius, 2)
+            pygame.draw.circle(self.screen, (255, 255, 255), 
+                             screen_pos, radius, 2)
         
         # Clean up old trails
-        active_ids = {id(obj) for obj in sound_objects}
-        self.trails = {k: v for k, v in self.trails.items() if k in active_ids}
+        active_ids = {obj_data['id'] for obj_data in snapshot}
+        self.trails = {k: v for k, v in self.trails.items() 
+                       if k in active_ids}
     
-    def _update_circular_motion(self, sound_obj, current_time):
-        """Update position for circular moving objects"""
+    def _update_circular_motion_snapshot(self, obj_data, current_time):
+        """Update position for circular moving objects using snapshot data"""
         # Initialize timing if needed
-        if not hasattr(sound_obj, 'visual_start_time'):
-            sound_obj.visual_start_time = current_time
-            sound_obj.visual_initial_angle = getattr(sound_obj, 'angle', 0)
+        if 'visual_start_time' not in obj_data:
+            obj_data['visual_start_time'] = current_time
+            obj_data['visual_initial_angle'] = obj_data['angle']
         
         # Get motion parameters
-        elapsed = current_time - sound_obj.visual_start_time
-        speed = getattr(sound_obj, 'speed', 1.0)
-        direction = getattr(sound_obj, 'direction', 1)
-        radius = getattr(sound_obj, 'radius', 5.0)
-        center = getattr(sound_obj, 'center', np.array([0.0, 0.0]))
+        elapsed = current_time - obj_data['visual_start_time']
+        speed = obj_data['speed']
+        direction = obj_data['direction']
+        radius = obj_data['radius']
+        center = obj_data['center']
         
         # Calculate new position
-        current_angle = sound_obj.visual_initial_angle + direction * speed * elapsed
+        current_angle = (obj_data['visual_initial_angle'] + 
+                        direction * speed * elapsed)
         new_x = center[0] + radius * math.cos(current_angle)
         new_y = center[1] + radius * math.sin(current_angle)
         
         # Update position
-        sound_obj.position = np.array([new_x, new_y])
+        obj_data['position'] = np.array([new_x, new_y])
     
     def _draw_trail(self, obj_id, color):
         """Draw movement trail"""
@@ -259,15 +261,15 @@ class PygameVisualRenderer:
                 pygame.draw.line(self.screen, trail_color, 
                                trail[i-1], trail[i], width)
     
-    def _draw_info_panel(self, sound_objects, box_size):
+    def _draw_info_panel(self, snapshot, box_size):
         """Draw information panel"""
         if not self.font:
             return
             
         info_lines = [
-            f"Active Sounds: {len(sound_objects)}",
+            f"Active Sounds: {len(snapshot)}",
             f"Spatial Area: {box_size:.1f}x{box_size:.1f}",
-            f"Speakers: 12-channel surround",
+            "Speakers: 12-channel surround",
             "",
             "Legend:",
             "Large circles = Moving sounds",
@@ -288,6 +290,29 @@ class PygameVisualRenderer:
         if pygame:
             pygame.quit()
 
+    def update_scene_data(self, sound_objects):
+        """Thread-safe update of scene data"""
+        with self.snapshot_lock:
+            self.scene_snapshot = []
+            for obj in sound_objects:
+                if hasattr(obj, 'position'):
+                    # Create a safe copy of object data
+                    obj_data = {
+                        'position': np.copy(obj.position),
+                        'is_moving': isinstance(obj, SO_PlaybackCircularMove),
+                        'id': id(obj)
+                    }
+                    # Copy movement parameters if it's a moving object
+                    if obj_data['is_moving']:
+                        obj_data.update({
+                            'speed': getattr(obj, 'speed', 1.0),
+                            'direction': getattr(obj, 'direction', 1),
+                            'radius': getattr(obj, 'radius', 5.0),
+                            'center': getattr(obj, 'center', np.array([0.0, 0.0])),
+                            'angle': getattr(obj, 'angle', 0)
+                        })
+                    self.scene_snapshot.append(obj_data)
+
 
 # Global visualization control
 visual_renderer = None
@@ -295,7 +320,7 @@ visual_thread = None
 visual_stop_flag = False
 
 
-def start_pygame_visualization(scene, box_size):
+def start_pygame_visualization(box_size):
     """Start pygame visualization in separate thread"""
     global visual_renderer, visual_thread, visual_stop_flag
     
@@ -315,12 +340,14 @@ def start_pygame_visualization(scene, box_size):
         
         while not visual_stop_flag and visual_renderer.running:
             try:
-                if not visual_renderer.update_frame(scene, box_size):
+                if not visual_renderer.update_frame(box_size):
                     break
-                time.sleep(0.033)  # ~30 FPS
+                # Reduced frequency to not interfere with audio
+                time.sleep(0.1)  # 10 FPS
             except Exception as e:
                 print(f"Visualization error: {e}")
-                break
+                # Don't break on errors, just continue
+                time.sleep(0.1)
         
         visual_renderer.cleanup()
         print("Pygame visualization stopped")
@@ -418,7 +445,7 @@ def play_spatial_soundpool(
     # Start visualization if enabled
     visual_started = False
     if enable_visual_rendering and VISUAL_RENDERING_AVAILABLE:
-        visual_started = start_pygame_visualization(player.scene, box_size)
+        visual_started = start_pygame_visualization(box_size)
         if visual_started:
             print("Pygame visualization window opened")
         else:
@@ -429,6 +456,8 @@ def play_spatial_soundpool(
         player.start_initial_sound()
         start_time = time.time()
         duration_seconds = duration_minutes * 60
+        last_visual_update = 0
+        visual_update_interval = 0.2  # Update visualization every 200ms
         
         for j, chunk in enumerate(player.scene.run()):
             if playback_stop_flag:
@@ -453,6 +482,20 @@ def play_spatial_soundpool(
             # Send audio chunk
             chunk = np.clip(chunk, -1, 1)
             player.sound_streamer.send(chunk)
+            
+            # Update visualization data periodically (thread-safe)
+            current_time = time.time()
+            if (visual_started and 
+                current_time - last_visual_update > visual_update_interval):
+                try:
+                    # Update visualization with current scene data
+                    sound_objects = (player.scene.sound_objects 
+                                   if hasattr(player.scene, 'sound_objects') 
+                                   else [])
+                    update_visualization_data(sound_objects)
+                    last_visual_update = current_time
+                except Exception as ve:
+                    print(f"Visualization data update error: {ve}")
             
             # Timing
             time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
@@ -486,6 +529,13 @@ def stop_playback():
     playback_stop_flag = True
     stop_pygame_visualization()
     return "Playback and visualization stopped."
+
+
+def update_visualization_data(sound_objects):
+    """Update visualization with current scene data (thread-safe)"""
+    global visual_renderer
+    if visual_renderer:
+        visual_renderer.update_scene_data(sound_objects)
 
 
 # Gradio interface
