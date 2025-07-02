@@ -33,6 +33,8 @@ class SineWaveController:
         self.sound_streamer = None
         self.is_running = False
         self.audio_thread = None
+        self.is_muted = False
+        self.unmuted_amplitude = 0.5  # Store original amplitude when muted
         
     def start_audio(self):
         """Start the audio generation loop."""
@@ -84,7 +86,9 @@ class SineWaveController:
     
     def update_amplitude(self, amplitude):
         """Update sine wave amplitude."""
-        self.sine_object.set_amplitude(amplitude)
+        self.unmuted_amplitude = amplitude  # Always store the unmuted value
+        if not self.is_muted:
+            self.sine_object.set_amplitude(amplitude)
         return f"Amplitude: {amplitude:.2f}"
     
     def update_phase(self, phase):
@@ -111,16 +115,29 @@ class SineWaveController:
         self.sine_object.set_smoothing_factor(smoothing)
         return f"Smoothing: {smoothing:.2f}"
     
+    def toggle_mute(self, is_muted):
+        """Toggle mute on/off."""
+        self.is_muted = is_muted
+        if is_muted:
+            self.sine_object.set_amplitude(0.0)
+            return "🔇 Muted"
+        else:
+            self.sine_object.set_amplitude(self.unmuted_amplitude)
+            return "🔊 Unmuted"
+    
     def get_status(self):
         """Get current status information."""
         pos = self.sine_object.get_position()
         target_pos = self.sine_object.target_position
         
+        mute_status = "🔇 Muted" if self.is_muted else "🔊 Unmuted"
+        
         status = f"""Status: {'Running' if self.is_running else 'Stopped'}
+Mute: {mute_status}
 
 Target Values:
   Frequency: {self.sine_object.target_frequency:.1f} Hz
-  Amplitude: {self.sine_object.target_amplitude:.2f}
+  Amplitude: {self.unmuted_amplitude:.2f} (stored)
   Phase: {self.sine_object.target_phase_offset:.2f} rad
   Position: ({target_pos[0]:.1f}, {target_pos[1]:.1f})
 
@@ -150,6 +167,11 @@ def create_interface():
                 # Control buttons
                 start_btn = gr.Button("Start Audio", variant="primary")
                 stop_btn = gr.Button("Stop Audio", variant="secondary")
+                
+                # Mute control
+                mute_checkbox = gr.Checkbox(
+                    label="🔇 Mute", value=False
+                )
                 
                 # Parameter controls
                 gr.Markdown("### Audio Parameters")
@@ -215,6 +237,9 @@ def create_interface():
                 smoothing_output = gr.Textbox(
                     label="Smoothing Status", value="Smoothing: 0.95"
                 )
+                mute_output = gr.Textbox(
+                    label="Mute Status", value="🔊 Unmuted"
+                )
         
         # Event handlers
         start_btn.click(
@@ -262,6 +287,12 @@ def create_interface():
             controller.update_smoothing,
             inputs=smoothing_slider,
             outputs=smoothing_output
+        )
+        
+        mute_checkbox.change(
+            controller.toggle_mute,
+            inputs=mute_checkbox,
+            outputs=mute_output
         )
         
         # Manual status refresh button
