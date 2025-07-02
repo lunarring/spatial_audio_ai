@@ -12,7 +12,11 @@ import time
 import threading
 from typing import Optional, Tuple
 import numpy as np
-from spatial_audio_ai.config import MAX_QUEUE_SIZE, QUEUE_WARNING_THRESHOLD
+from spatial_audio_ai.config import (
+    MAX_QUEUE_SIZE, 
+    QUEUE_WARNING_THRESHOLD, 
+    QUEUE_DROP_THRESHOLD
+)
 
 
 class FastAudioSocket:
@@ -261,26 +265,34 @@ class QueueManagedStreamer(FastAudioStreamer):
     def send_with_queue_management(self, data: np.ndarray) -> bool:
         """
         Send audio with intelligent queue management.
-        Drops frames if queue builds up to maintain low latency.
+        Uses multi-level thresholds for stable operation.
         """
         with self.queue_lock:
             queue_size = len(self.send_queue)
             
-            # Drop frames if queue is too full
-            if queue_size >= MAX_QUEUE_SIZE:
-                # Drop oldest frame(s)
+            # Emergency: Drop multiple frames if severely backed up
+            if queue_size >= QUEUE_DROP_THRESHOLD:
+                frames_to_drop = queue_size - MAX_QUEUE_SIZE
+                for _ in range(frames_to_drop):
+                    if self.send_queue:
+                        self.send_queue.pop(0)
+                        self.stats['dropped'] += 1
+                self.stats['queue_overruns'] += 1
+                print(f"Emergency: Dropped {frames_to_drop} frames "
+                      f"(queue was {queue_size})")
+                      
+            # Normal queue limit
+            elif queue_size >= MAX_QUEUE_SIZE:
                 self.send_queue.pop(0)
                 self.stats['dropped'] += 1
-                self.stats['queue_overruns'] += 1
-                print(f"Warning: Dropped frame due to queue overrun "
-                      f"(queue: {queue_size})")
+                print(f"Queue full: Dropped 1 frame (queue: {queue_size})")
                       
             # Add new frame
             self.send_queue.append(data.copy())
             
-            # Process queue
+            # Warnings for monitoring
             if queue_size >= QUEUE_WARNING_THRESHOLD:
-                print(f"Queue warning: {queue_size} frames pending")
+                print(f"Queue building up: {queue_size} frames pending")
                 
         # Send immediately (non-blocking approach)
         return self._process_send_queue()
