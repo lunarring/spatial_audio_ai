@@ -28,7 +28,17 @@ scene = Scene(spatializer)
 scene.register(sound_object)
 
 sound_streamer = SoundNetworkStreamer()
+
+# Implement precise real-time timing
+chunk_duration = CHUNKSIZE / SAMPLING_RATE
+start_time = time.perf_counter()
+
 for j, chunk in enumerate(scene.run()):
     chunk = np.clip(chunk, -1, 1)
     sound_streamer.send(chunk)
-    time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+    
+    # Schedule next chunk send time (precise timing)
+    next_time = start_time + (j + 1) * chunk_duration
+    sleep_time = next_time - time.perf_counter()
+    if sleep_time > 0:
+        time.sleep(sleep_time)

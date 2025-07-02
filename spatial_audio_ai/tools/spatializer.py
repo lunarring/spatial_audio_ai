@@ -395,6 +395,11 @@ if __name__ == "__main__":
     scene.register(so)
 
     sound_streamer = SoundNetworkStreamer()
+    
+    # Implement precise real-time timing
+    chunk_duration = CHUNKSIZE / SAMPLING_RATE
+    start_time = time.perf_counter()
+    
     for j, chunk in enumerate(scene.run()):
 
         if np.random.rand() < p_inject:
@@ -419,7 +424,12 @@ if __name__ == "__main__":
         
         chunk = np.clip(chunk, -1, 1)
         sound_streamer.send(chunk)
-        time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+        
+        # Schedule next chunk send time (precise timing)
+        next_time = start_time + (j + 1) * chunk_duration
+        sleep_time = next_time - time.perf_counter()
+        if sleep_time > 0:
+            time.sleep(sleep_time)
         
     
     #%%#
@@ -467,10 +477,15 @@ if __name__ == "__main__":
             
             print(f"{x} {y} {angle}")
             sound_streamer.send(chunk)
+            
+            # Use proper real-time timing 
+            chunk_duration = CHUNKSIZE / SAMPLING_RATE
             if j == 0:
-                time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.05)
-            else:
-                time.sleep(CHUNKSIZE/SAMPLING_RATE)
+                timing_start = time.perf_counter()
+            next_time = timing_start + (j + 1) * chunk_duration
+            sleep_time = next_time - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
     
     # simple placement of two objects
     if False:
@@ -506,4 +521,12 @@ if __name__ == "__main__":
             if j == 8:
                 scene.register(SO_Playback(sound_b, position=np.array([3., 3.])))
             print(f"sent chunk {j}")
-            time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+            
+            # Use precise real-time timing - calculated per chunk
+            chunk_duration = CHUNKSIZE / SAMPLING_RATE
+            if j == 0:
+                start_time = time.perf_counter()
+            next_time = start_time + (j + 1) * chunk_duration
+            sleep_time = next_time - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)

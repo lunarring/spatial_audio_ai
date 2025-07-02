@@ -62,6 +62,11 @@ class SineWaveController:
             # Create sound streamer when audio starts
             self.sound_streamer = SoundNetworkStreamer()
             
+            # Implement precise real-time timing
+            chunk_duration = CHUNKSIZE / SAMPLING_RATE
+            start_time = time.perf_counter()
+            chunk_counter = 0
+            
             for chunk in self.scene.run():
                 if not self.is_running:
                     break
@@ -69,9 +74,13 @@ class SineWaveController:
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)
                 self.sound_streamer.send(chunk)
+                chunk_counter += 1
                 
-                # Sleep to maintain proper timing
-                time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+                # Schedule next chunk send time (precise timing)
+                next_time = start_time + chunk_counter * chunk_duration
+                sleep_time = next_time - time.perf_counter()
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
                 
         except Exception as e:
             print(f"Audio loop error: {e}")

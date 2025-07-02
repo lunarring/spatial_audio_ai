@@ -439,7 +439,15 @@ class SpatialSoundPoolPlayer:
                     self.scene.register(so)
                 chunk = np.clip(chunk, -1, 1)
                 self.sound_streamer.send(chunk)
-                time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+                
+                # Use precise real-time timing
+                chunk_duration = CHUNKSIZE / SAMPLING_RATE
+                if j == 0:
+                    timing_start = time.perf_counter()
+                next_time = timing_start + (j + 1) * chunk_duration
+                sleep_time = next_time - time.perf_counter()
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
                 elapsed = time.time() - start_time
                 if elapsed > duration_seconds:
                     print(f"Playback completed after {elapsed:.1f} seconds")

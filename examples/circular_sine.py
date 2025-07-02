@@ -37,6 +37,11 @@ scene.register(sound_object)
 start_time = time.time()
 
 sound_streamer = SoundNetworkStreamer()
+
+# Implement precise real-time timing
+chunk_duration = CHUNKSIZE / SAMPLING_RATE
+timing_start = time.perf_counter()
+
 for j, chunk in enumerate(scene.run()):
     # Calculate the current angle based on time
     elapsed_time = time.time() - start_time
@@ -59,5 +64,8 @@ for j, chunk in enumerate(scene.run()):
     chunk = np.clip(chunk, -1, 1)
     sound_streamer.send(chunk)
     
-    # Sleep to maintain proper timing
-    time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01) 
+    # Schedule next chunk send time (precise timing)
+    next_time = timing_start + (j + 1) * chunk_duration
+    sleep_time = next_time - time.perf_counter()
+    if sleep_time > 0:
+        time.sleep(sleep_time) 
