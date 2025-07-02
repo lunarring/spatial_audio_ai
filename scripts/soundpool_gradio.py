@@ -28,6 +28,7 @@ default_prompts = [
     'shamanic ritual with analog oscillators'
 ]
 
+
 def random_dir(base="/tmp/soundpool_gradio_"):
     rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     dir_tmp = f"{base}{rand}"
@@ -152,6 +153,10 @@ with gr.Blocks() as demo:
     Generate a pool of AI sounds from prompts, then spatially play them back!
     """
     )
+    
+    # Create shared state for directory
+    dir_state = gr.State("")
+    
     with gr.Tab("1. Generate Sound Pool"):
         prompts_box = gr.Textbox(
             label="Prompts (one per line)",
@@ -168,17 +173,6 @@ with gr.Blocks() as demo:
         generate_btn = gr.Button("Generate Sounds")
         output_dir = gr.Textbox(label="Output Directory", interactive=False)
         gen_progress = gr.Textbox(label="Status", interactive=False)
-
-        def _generate(prompts, n_sounds, min_duration, max_duration,
-                      progress=gr.Progress(track_tqdm=True)):
-            dir_tmp = generate_sounds(prompts, n_sounds, min_duration,
-                                      max_duration, progress)
-            return dir_tmp, f"Generated {n_sounds} sounds in {dir_tmp}"
-
-        generate_btn.click(
-            _generate, inputs=[prompts_box, n_sounds, min_duration, max_duration],
-            outputs=[output_dir, gen_progress]
-        )
 
     with gr.Tab("2. Spatial Playback"):
         gr.Markdown(
@@ -247,5 +241,17 @@ with gr.Blocks() as demo:
         )
         stop_btn.click(stop_playback, outputs=playback_status)
 
+    # Define the generate function and connect it to the button
+    def _generate(prompts, n_sounds, min_duration, max_duration,
+                  progress=gr.Progress(track_tqdm=True)):
+        dir_tmp = generate_sounds(prompts, n_sounds, min_duration,
+                                  max_duration, progress)
+        return dir_tmp, f"Generated {n_sounds} sounds in {dir_tmp}", dir_tmp
+
+    generate_btn.click(
+        _generate, inputs=[prompts_box, n_sounds, min_duration, max_duration],
+        outputs=[output_dir, gen_progress, dir_input]
+    )
+
 if __name__ == "__main__":
-    demo.launch(server_name="10.40.49.143") 
+    demo.launch(server_name="10.40.49.109")
