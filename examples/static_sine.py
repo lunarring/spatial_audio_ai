@@ -4,7 +4,7 @@ from spatial_audio_ai import (
     SO_Playback, 
     Spatializer, 
     Scene,
-    SoundNetworkStreamer
+    QueueManagedStreamer
 )
 from spatial_audio_ai.tools.spatializer import CHUNKSIZE, SAMPLING_RATE
 
@@ -27,8 +27,11 @@ spatializer = Spatializer()
 scene = Scene(spatializer)
 scene.register(sound_object)
 
-sound_streamer = SoundNetworkStreamer()
-for j, chunk in enumerate(scene.run()):
-    chunk = np.clip(chunk, -1, 1)
-    sound_streamer.send(chunk)
-    time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+sound_streamer = QueueManagedStreamer()
+if sound_streamer.connect():
+    for j, chunk in enumerate(scene.run()):
+        chunk = np.clip(chunk, -1, 1)
+        sound_streamer.send_with_queue_management(chunk)
+    sound_streamer.disconnect()
+else:
+    print("Failed to connect to fast audio server")

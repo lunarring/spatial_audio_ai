@@ -1,19 +1,18 @@
 import numpy as np
 import sounddevice as sd
 from dataclasses import dataclass
-from typing import List, Tuple
 from abc import ABC, abstractmethod
 import soundfile as sf
 import time
-from spatial_audio_ai.tools.numpysocket import NumpySocket
 import os
 import random
-from spatial_audio_ai.tools.client import SoundNetworkStreamer
+from spatial_audio_ai.tools.fast_network import QueueManagedStreamer
 from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
 import uuid
 
 sd.default.blocksize = BLOCKSIZE
-CHUNKSIZE = BLOCKSIZE*4
+# Use BLOCKSIZE directly for minimal latency - no more 4x multiplication!
+CHUNKSIZE = BLOCKSIZE
 
 @dataclass
 class SoundMessage:
@@ -394,32 +393,39 @@ if __name__ == "__main__":
     scene.volume = 0.3
     scene.register(so)
 
-    sound_streamer = SoundNetworkStreamer()
-    for j, chunk in enumerate(scene.run()):
+    sound_streamer = QueueManagedStreamer()
+    if sound_streamer.connect():
+        for j, chunk in enumerate(scene.run()):
+            if j > 1000:  # Limit for example
+                break
 
-        if np.random.rand() < p_inject:
-            wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
-            random_file = random.choice(wav_files)
-            sound = sf.read(f"{dir_scan}{random_file}")[0]
-            # Set random radius, speed, angle, direction for each injected sound
-            radius = np.random.uniform(2, box_size/2)
-            speed = np.random.uniform(0.2, 1.0)
-            angle = np.random.uniform(0, 2*np.pi)
-            direction = random.choice([-1, 1])
-            scene.register(SO_PlaybackCircularMove(
-                sound,
-                radius=radius,
-                speed=speed,
-                initial_angle=angle,
-                direction=direction,
-                center=np.zeros(2, dtype=float),
-                loop=True
-            ))
-            print(f"Injected circular moving sound: {random_file} at radius: {radius:.2f}, speed: {speed:.2f}, angle: {angle:.2f}, direction: {direction}")
-        
-        chunk = np.clip(chunk, -1, 1)
-        sound_streamer.send(chunk)
-        time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+            if np.random.rand() < p_inject:
+                wav_files = [f for f in os.listdir(dir_scan) if f.endswith('.wav')]
+                random_file = random.choice(wav_files)
+                sound = sf.read(f"{dir_scan}{random_file}")[0]
+                # Set random radius, speed, angle, direction
+                radius = np.random.uniform(2, box_size/2)
+                speed = np.random.uniform(0.2, 1.0)
+                angle = np.random.uniform(0, 2*np.pi)
+                direction = random.choice([-1, 1])
+                scene.register(SO_PlaybackCircularMove(
+                    sound,
+                    radius=radius,
+                    speed=speed,
+                    initial_angle=angle,
+                    direction=direction,
+                    center=np.zeros(2, dtype=float),
+                    loop=True
+                ))
+                print(f"Injected moving sound: {random_file} at "
+                      f"radius: {radius:.2f}, speed: {speed:.2f}")
+            
+            chunk = np.clip(chunk, -1, 1)
+            sound_streamer.send_with_queue_management(chunk)
+            
+        sound_streamer.disconnect()
+    else:
+        print("Failed to connect to fast audio server")
         
     
     #%%#

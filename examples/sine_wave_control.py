@@ -17,7 +17,7 @@ from spatial_audio_ai.tools.spatializer import (
     CHUNKSIZE,
     SAMPLING_RATE
 )
-from spatial_audio_ai.tools.client import SoundNetworkStreamer
+from spatial_audio_ai.tools.fast_network import QueueManagedStreamer
 import lunar_tools as lt
 
 class SineWaveController:
@@ -57,10 +57,20 @@ class SineWaveController:
         return "Audio stopped"
     
     def _audio_loop(self):
-        """Main audio generation loop running in separate thread."""
+        """Main audio generation loop with real-time timing."""
         try:
-            # Create sound streamer when audio starts
-            self.sound_streamer = SoundNetworkStreamer()
+            # Create fast audio streamer when audio starts
+            self.sound_streamer = QueueManagedStreamer()
+            if not self.sound_streamer.connect():
+                print("Failed to connect to audio server")
+                return
+            
+            # Calculate target timing
+            chunk_duration = CHUNKSIZE / SAMPLING_RATE
+            
+            # Start timing
+            start_time = time.perf_counter()
+            chunk_count = 0
             
             for chunk in self.scene.run():
                 if not self.is_running:
@@ -68,16 +78,38 @@ class SineWaveController:
                     
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)
-                self.sound_streamer.send(chunk)
                 
-                # Sleep to maintain proper timing
-                time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01)
+                # Send with queue management (prevents latency buildup)
+                success = self.sound_streamer.send_with_queue_management(chunk)
+                if not success:
+                    print("Audio transmission failed")
+                    
+                chunk_count += 1
+                
+                # Calculate next target time
+                target_time = start_time + chunk_count * chunk_duration
+                current_time = time.perf_counter()
+                
+                # Only sleep if we're ahead of schedule
+                if current_time < target_time:
+                    sleep_time = target_time - current_time
+                    time.sleep(sleep_time)
+                elif current_time > target_time + chunk_duration * 0.5:
+                    # We're behind schedule - warn and reset timing
+                    print(f"Warning: Audio timing behind by "
+                          f"{(current_time - target_time) * 1000:.1f}ms")
+                    start_time = current_time
+                    chunk_count = 0
                 
         except Exception as e:
             print(f"Audio loop error: {e}")
         finally:
             self.is_running = False
-            self.sound_streamer = None
+            if self.sound_streamer:
+                stats = self.sound_streamer.get_stats()
+                print(f"Audio stats: {stats}")
+                self.sound_streamer.disconnect()
+                self.sound_streamer = None
     
     def update_frequency(self, frequency):
         """Update sine wave frequency."""

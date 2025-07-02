@@ -2,39 +2,37 @@ import logging
 from enum import IntEnum
 import time
 from collections import deque
-from typing import Dict, Tuple
-import asyncio
-import threading
 import numpy as np
 import sounddevice as sd
 import argparse
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS
+from spatial_audio_ai.config import (
+    SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS, MAX_QUEUE_SIZE
+)
 
 sd.default.blocksize = BLOCKSIZE
 
-## Configuration
-
-# Speaker id to soundcard cluster stereo_channel_idx mapping
-# usually maps 1 to 1, but can be different; defined in the Dante Cntroller
-# Note: Speaker ID is once defined names of speaker in the room
-# Note: Soundcard cluster channel is the channel no of the virtual 16 
-SPEAKER_SOUNDCARD_CLUSTER_MAPPING = {f"speaker{i}": {"soundcard_cluster_channel": i} for i in range(1, N_SPEAKERS + 1)}
-
-## Code
+# Configuration
+# Speaker id to soundcard cluster stereo_channel_idx mapping  
+SPEAKER_SOUNDCARD_CLUSTER_MAPPING = {
+    f"speaker{i}": {"soundcard_cluster_channel": i} 
+    for i in range(1, N_SPEAKERS + 1)
+}
 class StereoChannels(IntEnum):
     "Stereo channel mapping to virtual soundcard stereo channel id"
     LEFT = 0
     RIGHT = 1
 
+
 class StreamManager():
-    def __init__(self, device : int, samplerate : int, stereo_channel_idx : int) -> None:
+    def __init__(self, device: int, samplerate: int, stereo_channel_idx: int) -> None:
         self.device = device
         self.samplerate = samplerate
         self.stereo_channel_idx = stereo_channel_idx
-        self.queue = deque()
+        self.queue = deque(maxlen=MAX_QUEUE_SIZE)  # Limit queue size
         self.index = 0
         self.queue_index = 0
+        self.dropped_frames = 0
 
     def callback(self, outdata : np.array, frames : int, time : float, status : sd.CallbackFlags) -> None:
         if status:

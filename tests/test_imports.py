@@ -13,9 +13,10 @@ def test_main_imports():
         Spatializer,
         Scene,
         SO_Playback,
-        SoundNetworkStreamer,
-        SoundServer,
-        StableAudioDiffusion
+        SO_PlaybackSine,
+        FastAudioStreamer,
+        QueueManagedStreamer,
+        BLOCKSIZE
     )
     
     assert spatial_audio_ai.__version__ == "0.1.0"
@@ -24,9 +25,10 @@ def test_main_imports():
     assert Spatializer
     assert Scene
     assert SO_Playback
-    assert SoundNetworkStreamer
-    assert SoundServer
-    assert StableAudioDiffusion
+    assert SO_PlaybackSine
+    assert FastAudioStreamer
+    assert QueueManagedStreamer
+    assert BLOCKSIZE
 
 
 def test_tools_imports():
@@ -36,8 +38,9 @@ def test_tools_imports():
         Spatializer,
         Scene,
         SO_Playback,
-        SoundNetworkStreamer,
-        SoundServer,
+        SO_PlaybackSine,
+        FastAudioStreamer,
+        QueueManagedStreamer,
         apply_fade_in_out
     )
     
@@ -46,8 +49,9 @@ def test_tools_imports():
     assert Spatializer
     assert Scene
     assert SO_Playback
-    assert SoundNetworkStreamer
-    assert SoundServer
+    assert SO_PlaybackSine
+    assert FastAudioStreamer
+    assert QueueManagedStreamer
     assert apply_fade_in_out
 
 

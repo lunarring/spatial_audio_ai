@@ -4,7 +4,7 @@ from spatial_audio_ai import (
     SO_Playback, 
     Spatializer, 
     Scene,
-    SoundNetworkStreamer
+    QueueManagedStreamer
 )
 from spatial_audio_ai.tools.spatializer import CHUNKSIZE, SAMPLING_RATE
 
@@ -36,28 +36,30 @@ scene.register(sound_object)
 # Start time to calculate position
 start_time = time.time()
 
-sound_streamer = SoundNetworkStreamer()
-for j, chunk in enumerate(scene.run()):
-    # Calculate the current angle based on time
-    elapsed_time = time.time() - start_time
-    # Convert elapsed time to angle in radians
-    # 2π radians = one full rotation in PERIOD seconds
-    angle = 2 * np.pi * (elapsed_time % PERIOD) / PERIOD
-    
-    # Calculate new position on circle with radius RADIUS
-    x = RADIUS * np.cos(angle)
-    y = RADIUS * np.sin(angle)
-    
-    # Update sound object position
-    sound_object.set_position(np.array([x, y], dtype=float))
-    
-    # Print position information (optional)
-    if j % 20 == 0:  # Print every 20th update to reduce console output
-        print(f"Time: {elapsed_time:.2f}s, Position: ({x:.2f}, {y:.2f})")
-    
-    # Send audio to output
-    chunk = np.clip(chunk, -1, 1)
-    sound_streamer.send(chunk)
-    
-    # Sleep to maintain proper timing
-    time.sleep(CHUNKSIZE/SAMPLING_RATE - 0.01) 
+sound_streamer = QueueManagedStreamer()
+if sound_streamer.connect():
+    for j, chunk in enumerate(scene.run()):
+        # Calculate the current angle based on time
+        elapsed_time = time.time() - start_time
+        # Convert elapsed time to angle in radians
+        # 2π radians = one full rotation in PERIOD seconds
+        angle = 2 * np.pi * (elapsed_time % PERIOD) / PERIOD
+        
+        # Calculate new position on circle with radius RADIUS
+        x = RADIUS * np.cos(angle)
+        y = RADIUS * np.sin(angle)
+        
+        # Update sound object position
+        sound_object.set_position(np.array([x, y], dtype=float))
+        
+        # Print position information (optional)
+        if j % 20 == 0:  # Print every 20th update to reduce console output
+            print(f"Time: {elapsed_time:.2f}s, Position: ({x:.2f}, {y:.2f})")
+        
+        # Send audio to output
+        chunk = np.clip(chunk, -1, 1)
+        sound_streamer.send_with_queue_management(chunk)
+        
+    sound_streamer.disconnect()
+else:
+    print("Failed to connect to fast audio server") 

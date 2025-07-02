@@ -1,59 +1,91 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
+"""
+Ultra-low latency audio server using FastAudioSocket protocol.
+
+Replaces the heavy numpy serialization server with a lightweight
+binary protocol for minimal latency audio reception and playback.
+"""
+
 import logging
 import time
-import socket
 import sys
 import numpy as np
-from spatial_audio_ai.tools.numpysocket import NumpySocket
+from spatial_audio_ai.tools.fast_network import FastAudioSocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
-# import threading # No longer needed for single client
+from spatial_audio_ai.config import N_SPEAKERS, BLOCKSIZE
 
 # Create logger
-logger = logging.getLogger("sound server")
+logger = logging.getLogger("fast_sound_server")
 logger.setLevel(logging.INFO)
 
-def handle_client(conn, addr, sound_system, verbose=False):
-    """Handle a single client connection"""
+
+def handle_fast_client(conn, addr, sound_system, verbose=False):
+    """Handle a single client connection using fast protocol"""
     try:
         logger.info(f"Connected: {addr}")
         if verbose:
-            print(f"Client connected from {addr}")
+            print(f"Fast client connected from {addr}")
+        
+        frames_received = 0
         
         while True:
             try:
-                sound_array = conn.recv()
+                # Receive audio data using fast protocol
+                audio_data = conn.receive_audio()
                 
                 # Check for disconnection or empty message
-                if sound_array is None or not sound_array.size:
+                if audio_data is None or not audio_data.size:
                     logger.info(f"Client {addr} disconnected or sent empty data.")
-                    break # Exit the loop for this client
-                    
-                if len(sound_array.shape) == 2:
-                    if verbose:
-                        logger.info(f"Received sound array with shape {sound_array.shape}")
-                        logger.info(f"Sound array stats - Min: {np.min(sound_array)}, Max: {np.max(sound_array)}, Mean: {np.mean(sound_array)}, Std: {np.std(sound_array)}")
-                    sound_system.add_to_playback_queue(sound_array)
-                else:
-                    logger.warning(f"Received array with unexpected shape {sound_array.shape} from {addr}. Disconnecting.")
-                    break # Optional: disconnect on malformed data
-            except socket.timeout: # If conn had a timeout
-                logger.info(f"Socket timeout waiting for data from {addr}. Assuming disconnect.")
-                break
-            except Exception as e:
-                logger.info(f"Connection error with {addr}: {e}")
-                break # Exit loop on other errors
+                    break
                 
-        logger.info(f"Disconnected: {addr}")
+                # Reshape the flat array back to 2D (channels, samples)
+                # Expected format: (N_SPEAKERS, BLOCKSIZE)
+                expected_size = N_SPEAKERS * BLOCKSIZE
+                if audio_data.size != expected_size:
+                    logger.warning(
+                        f"Unexpected audio data size {audio_data.size}, "
+                        f"expected {expected_size} from {addr}"
+                    )
+                    continue
+                
+                # Reshape to (channels, samples)
+                sound_array = audio_data.reshape(N_SPEAKERS, BLOCKSIZE)
+                
+                frames_received += 1
+                
+                if verbose and frames_received % 100 == 0:
+                    logger.info(f"Received {frames_received} frames from {addr}")
+                    logger.info(
+                        f"Audio stats - Min: {np.min(sound_array):.3f}, "
+                        f"Max: {np.max(sound_array):.3f}, "
+                        f"Mean: {np.mean(sound_array):.3f}"
+                    )
+                
+                # Add to playback queue
+                sound_system.add_to_playback_queue(sound_array)
+                
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error in handle_fast_client for {addr}: {e}", 
+                    exc_info=True
+                )
+                print(f"Error handling fast client {addr}. Check logs.")
+                break
+                
+        logger.info(f"Disconnected: {addr} (received {frames_received} frames)")
         if verbose:
-            print(f"Client disconnected from {addr}")
-    except Exception as e: # Catch-all for unexpected errors in handle_client setup/teardown
-        logger.error(f"Unexpected error in handle_client for {addr}: {e}", exc_info=True)
-        print(f"Error handling client {addr}. Check logs.")
-    # 'with conn:' in main ensures conn.close() is called
+            print(f"Fast client disconnected from {addr}")
+            
+    except Exception as e:
+        logger.error(
+            f"Unexpected error in handle_fast_client for {addr}: {e}", 
+            exc_info=True
+        )
+        print(f"Error handling fast client {addr}. Check logs.")
 
 
 class SoundServer:
-    """Sound server class that can be used to start a server instance"""
+    """Ultra-low latency sound server using fast audio protocol"""
     
     def __init__(
         self, 
@@ -68,66 +100,79 @@ class SoundServer:
         self.log_level = log_level
         self.mock_mode = mock_mode
         self.verbose = verbose
+        self.server_socket = None
     
     def start(self):
-        """Start the sound server"""
-        # Only initialize SoundSystem when server is started
+        """Start the fast sound server"""
+        # Initialize SoundSystem when server is started
         sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode)
         
-        with NumpySocket() as s:
-            s.bind((self.host, self.port))
-            s.listen(1)  # Only allow one connection in the backlog
-            s.settimeout(1.0)  # Timeout for s.accept() to allow KeyboardInterrupt
+        self.server_socket = FastAudioSocket()
+        
+        try:
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(1)  # Only allow one connection
             
-            print(f"Server started on {self.host}:{self.port}. Press Ctrl+C to stop.")
+            print(f"Fast Sound Server started on {self.host}:{self.port}")
+            print("Press Ctrl+C to stop.")
             
-            try:
-                while True:
-                    if self.verbose:
-                        print("Waiting for client connection...")
+            while True:
+                if self.verbose:
+                    print("Waiting for client connection...")
+                
+                try:
+                    # Wait for a client to connect
+                    conn, addr = self.server_socket.accept()
                     
-                    try:
-                        # Wait for a client to connect
-                        conn, addr = s.accept()
+                    # Handle this client (blocking until client disconnects)
+                    with conn: 
+                        handle_fast_client(conn, addr, sound_system, self.verbose)
                         
-                        # Handle this client (blocking until client disconnects)
-                        with conn: 
-                            handle_client(conn, addr, sound_system, self.verbose)
-                            
-                    except socket.timeout:
-                        # This is for s.accept() timeout, just continue the loop
-                        continue
-                    except Exception as e:
-                        logger.error(f"Error during accept or client handling setup: {e}")
-                        # Decide if server should continue or stop on such errors
-                        # For now, let's print and continue listening, but could also break
-                        print(f"An error occurred: {e}. Server continues listening.")
-                        time.sleep(1) # Avoid fast error loop
+                except Exception as e:
+                    logger.error(f"Error during accept or client handling: {e}")
+                    print(f"An error occurred: {e}. Server continues listening.")
+                    time.sleep(1)  # Avoid fast error loop
                         
-            except KeyboardInterrupt:
-                print("\nServer shutting down gracefully...")
-            except Exception as e:
-                # Catch other unexpected errors in the main server loop
-                print(f"\nCritical server error: {e}")
-                logger.critical(f"Critical server error: {e}", exc_info=True)
-            finally:
-                print("Cleaning up resources...")
-                # s.close() is handled by 'with NumpySocket() as s:'
-                print("Server stopped.")
-                sys.exit(0)
+        except KeyboardInterrupt:
+            print("\nFast Sound Server shutting down gracefully...")
+        except Exception as e:
+            print(f"\nCritical server error: {e}")
+            logger.critical(f"Critical server error: {e}", exc_info=True)
+        finally:
+            print("Cleaning up resources...")
+            if self.server_socket:
+                self.server_socket.close()
+            print("Fast Sound Server stopped.")
+            sys.exit(0)
 
 
 def main():
-    """Main function to run the server directly"""
+    """Main function to run the fast server directly"""
     import argparse
-    parser = argparse.ArgumentParser(description='Start the spatial audio server')
-    parser.add_argument('--mock', action='store_true', help='Run in mock mode (no hardware required)')
+    parser = argparse.ArgumentParser(
+        description='Start the ultra-low latency spatial audio server'
+    )
+    parser.add_argument(
+        '--mock', action='store_true', 
+        help='Run in mock mode (no hardware required)'
+    )
     parser.add_argument('--host', default="10.40.49.47", help='Host address')
     parser.add_argument('--port', type=int, default=9999, help='Port number')
-    parser.add_argument('--verbose', action='store_true', help='Enable verbose output for client connections')
+    parser.add_argument(
+        '--verbose', action='store_true', 
+        help='Enable verbose output for client connections'
+    )
     args = parser.parse_args()
     
-    server = SoundServer(host=args.host, port=args.port, mock_mode=args.mock, verbose=args.verbose)
+    print("Starting Ultra-Low Latency Audio Server")
+    print(f"Block size: {BLOCKSIZE} samples (~{BLOCKSIZE/48000*1000:.1f}ms)")
+    
+    server = SoundServer(
+        host=args.host, 
+        port=args.port, 
+        mock_mode=args.mock, 
+        verbose=args.verbose
+    )
     server.start()
 
 
