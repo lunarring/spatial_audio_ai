@@ -132,67 +132,135 @@ class SO_PlaybackSine(SoundObjectBase):
         frequency: float = 440.0,
         amplitude: float = 0.5,
         phase_offset: float = 0.0,
-        position: np.ndarray = np.zeros(2, dtype=float)
+        position: np.ndarray = np.zeros(2, dtype=float),
+        smoothing_factor: float = 0.95
     ):
         """
-        Real-time sine wave generator sound object.
+        Real-time sine wave generator with smooth parameter transitions.
         Args:
             frequency: Frequency in Hz.
             amplitude: Amplitude (0.0 to 1.0).
             phase_offset: Phase offset in radians.
             position: Position in 2D space.
+            smoothing_factor: Smoothing factor for parameter changes (0.9-0.99).
         """
-        self.frequency = frequency
-        self.amplitude = amplitude
-        self.phase_offset = phase_offset
-        self.position = position.copy()
+        # Target values (what we want to reach)
+        self.target_frequency = frequency
+        self.target_amplitude = amplitude
+        self.target_phase_offset = phase_offset
+        self.target_position = position.copy()
+        
+        # Current values (what we're actually using, smoothed)
+        self.current_frequency = frequency
+        self.current_amplitude = amplitude
+        self.current_phase_offset = phase_offset
+        self.current_position = position.copy()
+        
+        # Phase state management
         self.current_phase = 0.0
+        self.last_frequency = frequency  # Track for phase continuity
+        
+        # Smoothing configuration
+        self.smoothing_factor = smoothing_factor
+        self.amplitude_smoothing = smoothing_factor
+        self.position_smoothing = smoothing_factor
+        self.phase_offset_smoothing = smoothing_factor
+        
+        # State tracking
         self.last_chunk = np.zeros(CHUNKSIZE, dtype=float)
         self._id = uuid.uuid4()
 
     def query(self, tick: int) -> SoundMessage:
-        """Generate next chunk of sine wave."""
-        # Calculate time array for this chunk
+        """Generate next chunk with smooth parameter transitions."""
         chunk_duration = CHUNKSIZE / SAMPLING_RATE
         t = np.linspace(0, chunk_duration, CHUNKSIZE, endpoint=False)
         
-        # Generate sine wave chunk starting from current phase
-        sound_chunk = self.amplitude * np.sin(
-            2 * np.pi * self.frequency * t + self.current_phase + self.phase_offset
+        # Handle frequency changes with phase continuity
+        if abs(self.target_frequency - self.last_frequency) > 0.1:
+            # Frequency changed significantly - maintain phase continuity
+            # The phase should continue smoothly from where it was
+            self.current_frequency = self.target_frequency
+            self.last_frequency = self.target_frequency
+        else:
+            # Small or no frequency change
+            self.current_frequency = self.target_frequency
+        
+        # Smooth other parameters using exponential smoothing
+        self.current_amplitude = (
+            self.amplitude_smoothing * self.current_amplitude + 
+            (1 - self.amplitude_smoothing) * self.target_amplitude
         )
         
+        self.current_phase_offset = (
+            self.phase_offset_smoothing * self.current_phase_offset + 
+            (1 - self.phase_offset_smoothing) * self.target_phase_offset
+        )
+        
+        self.current_position = (
+            self.position_smoothing * self.current_position + 
+            (1 - self.position_smoothing) * self.target_position
+        )
+        
+        # Generate sine wave chunk with smoothed parameters
+        # Use instantaneous frequency to avoid artifacts
+        instantaneous_phase = (
+            2 * np.pi * self.current_frequency * t + 
+            self.current_phase + 
+            self.current_phase_offset
+        )
+        
+        sound_chunk = self.current_amplitude * np.sin(instantaneous_phase)
+        
         # Update phase for next chunk (maintain continuity)
-        self.current_phase += 2 * np.pi * self.frequency * chunk_duration
-        self.current_phase = self.current_phase % (2 * np.pi)  # Keep phase bounded
+        self.current_phase += 2 * np.pi * self.current_frequency * chunk_duration
+        self.current_phase = self.current_phase % (2 * np.pi)
         
         # Store last chunk
         self.last_chunk = sound_chunk.copy()
         
-        return SoundMessage(sound=sound_chunk, position=self.position)
+        return SoundMessage(sound=sound_chunk, position=self.current_position)
 
     def set_frequency(self, frequency: float):
-        """Update frequency."""
-        self.frequency = frequency
+        """Update target frequency with phase continuity."""
+        self.target_frequency = frequency
 
     def set_amplitude(self, amplitude: float):
-        """Update amplitude."""
-        self.amplitude = amplitude
+        """Update target amplitude (will be smoothed)."""
+        self.target_amplitude = amplitude
 
     def set_phase_offset(self, phase_offset: float):
-        """Update phase offset."""
-        self.phase_offset = phase_offset
+        """Update target phase offset (will be smoothed)."""
+        self.target_phase_offset = phase_offset
 
     def set_position(self, position: np.ndarray):
-        """Update position."""
-        self.position = position.copy()
+        """Update target position (will be smoothed)."""
+        self.target_position = position.copy()
 
     def get_position(self):
-        """Get current position."""
-        return self.position
+        """Get current smoothed position."""
+        return self.current_position
 
     def get_last_chunk(self):
         """Get the last generated chunk."""
         return self.last_chunk
+    
+    def set_smoothing_factor(self, factor: float):
+        """Adjust smoothing factor for all parameters (0.9-0.99)."""
+        self.smoothing_factor = np.clip(factor, 0.0, 0.99)
+        self.amplitude_smoothing = self.smoothing_factor
+        self.position_smoothing = self.smoothing_factor
+        self.phase_offset_smoothing = self.smoothing_factor
+    
+    def set_individual_smoothing(self, amplitude: float = None, 
+                                position: float = None, 
+                                phase_offset: float = None):
+        """Set individual smoothing factors for different parameters."""
+        if amplitude is not None:
+            self.amplitude_smoothing = np.clip(amplitude, 0.0, 0.99)
+        if position is not None:
+            self.position_smoothing = np.clip(position, 0.0, 0.99)
+        if phase_offset is not None:
+            self.phase_offset_smoothing = np.clip(phase_offset, 0.0, 0.99)
 
 
 class Spatializer:

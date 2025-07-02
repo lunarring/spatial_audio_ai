@@ -18,7 +18,7 @@ from spatial_audio_ai.tools.spatializer import (
     SAMPLING_RATE
 )
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
-
+import lunar_tools as lt
 
 class SineWaveController:
     """Controller class for managing real-time sine wave generation."""
@@ -106,16 +106,31 @@ class SineWaveController:
         self.sine_object.set_position(new_pos)
         return f"Y Position: {y:.1f}"
     
+    def update_smoothing(self, smoothing):
+        """Update smoothing factor."""
+        self.sine_object.set_smoothing_factor(smoothing)
+        return f"Smoothing: {smoothing:.2f}"
+    
     def get_status(self):
         """Get current status information."""
         pos = self.sine_object.get_position()
-        status = f"""
-        Status: {'Running' if self.is_running else 'Stopped'}
-        Frequency: {self.sine_object.frequency:.1f} Hz
-        Amplitude: {self.sine_object.amplitude:.2f}
-        Phase: {self.sine_object.phase_offset:.2f} rad
-        Position: ({pos[0]:.1f}, {pos[1]:.1f})
-        """
+        target_pos = self.sine_object.target_position
+        
+        status = f"""Status: {'Running' if self.is_running else 'Stopped'}
+
+Target Values:
+  Frequency: {self.sine_object.target_frequency:.1f} Hz
+  Amplitude: {self.sine_object.target_amplitude:.2f}
+  Phase: {self.sine_object.target_phase_offset:.2f} rad
+  Position: ({target_pos[0]:.1f}, {target_pos[1]:.1f})
+
+Current Values (Smoothed):
+  Frequency: {self.sine_object.current_frequency:.1f} Hz
+  Amplitude: {self.sine_object.current_amplitude:.2f}
+  Phase: {self.sine_object.current_phase_offset:.2f} rad
+  Position: ({pos[0]:.1f}, {pos[1]:.1f})
+
+Smoothing: {self.sine_object.smoothing_factor:.2f}"""
         return status
 
 
@@ -166,6 +181,13 @@ def create_interface():
                     label="Y Position"
                 )
                 
+                gr.Markdown("### Smoothing Control")
+                
+                smoothing_slider = gr.Slider(
+                    minimum=0.0, maximum=0.99, value=0.95, step=0.01,
+                    label="Smoothing Factor (higher = smoother)"
+                )
+                
             with gr.Column():
                 # Status and feedback
                 status_output = gr.Textbox(
@@ -189,6 +211,9 @@ def create_interface():
                 )
                 y_output = gr.Textbox(
                     label="Y Position Status", value="Y Position: 0.0"
+                )
+                smoothing_output = gr.Textbox(
+                    label="Smoothing Status", value="Smoothing: 0.95"
                 )
         
         # Event handlers
@@ -233,6 +258,12 @@ def create_interface():
             outputs=y_output
         )
         
+        smoothing_slider.change(
+            controller.update_smoothing,
+            inputs=smoothing_slider,
+            outputs=smoothing_output
+        )
+        
         # Manual status refresh button
         refresh_btn = gr.Button("Refresh Status")
         refresh_btn.click(
@@ -250,7 +281,7 @@ if __name__ == "__main__":
     
     interface = create_interface()
     interface.launch(
-        server_name="10.40.49.109",  # Listen on specific IP address
+        server_name=lt.get_local_ip(),  # Listen on specific IP address
         server_port=7860,
         share=False,  # Set to True if you want a public link
         show_api=False
