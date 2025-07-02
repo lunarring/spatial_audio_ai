@@ -159,10 +159,6 @@ class SineWaveMotionController:
                         
                         # Update sine wave frequency
                         self.sine_objects[name].set_frequency(frequency)
-                        
-                        # Ensure amplitude is set for active objects
-                        if not self.is_muted:
-                            self.sine_objects[name].set_amplitude(self.unmuted_amplitude)
                 
                 except Exception as e:
                     print(f"Error updating rigid body {name}: {e}")
@@ -266,6 +262,16 @@ class SineWaveMotionController:
                 self.sine_objects[name].set_position(scaled_position)
         return f"Position Scale: {scale:.2f}"
     
+    def update_min_frequency(self, min_freq):
+        """Update minimum frequency."""
+        self.min_frequency = min_freq
+        return f"Min Frequency: {min_freq:.1f} Hz"
+    
+    def update_max_frequency(self, max_freq):
+        """Update maximum frequency."""
+        self.max_frequency = max_freq
+        return f"Max Frequency: {max_freq:.1f} Hz"
+    
     def update_smoothing(self, smoothing):
         """Update smoothing factor for all objects."""
         for sine_obj in self.sine_objects.values():
@@ -347,7 +353,7 @@ def create_interface():
         gr.Markdown(
             "Control up to 4 real-time generated sine waves with spatial positioning. "
             "**Frequency is controlled by OptiTrack rigid body height** "
-            "(0m = 62.5Hz, 2m = 500Hz, 3 octaves exponential mapping). "
+            "(adjustable frequency range with exponential mapping). "
             "**Position is controlled by X and Z coordinates** of each rigid body."
         )
         
@@ -372,7 +378,18 @@ def create_interface():
                 # Parameter controls (no frequency slider - motion controlled)
                 gr.Markdown("### Audio Parameters")
                 gr.Markdown(
-                    "**Frequency:** Motion Controlled (Rigid Body Height - 3 Octaves)"
+                    "**Frequency:** Motion Controlled (Rigid Body Height - Exponential Mapping)"
+                )
+                
+                # Frequency range controls
+                min_freq_slider = gr.Slider(
+                    minimum=20.0, maximum=1000.0, value=62.5, step=0.5,
+                    label="Minimum Frequency (0m height)"
+                )
+                
+                max_freq_slider = gr.Slider(
+                    minimum=100.0, maximum=20000.0, value=500.0, step=10.0,
+                    label="Maximum Frequency (2m height)"
                 )
                 
                 amp_slider = gr.Slider(
@@ -410,7 +427,13 @@ def create_interface():
                     lines=12
                 )
                 
-                # Parameter feedback (no frequency output - motion controlled)
+                # Parameter feedback
+                min_freq_output = gr.Textbox(
+                    label="Min Frequency Status", value="Min Frequency: 62.5 Hz"
+                )
+                max_freq_output = gr.Textbox(
+                    label="Max Frequency Status", value="Max Frequency: 500.0 Hz"
+                )
                 amp_output = gr.Textbox(
                     label="Amplitude Status", value="Amplitude: 0.50"
                 )
@@ -452,7 +475,19 @@ def create_interface():
             outputs=status_output
         )
         
-        # Parameter update handlers (no frequency handler - motion controlled)
+        # Parameter update handlers
+        min_freq_slider.change(
+            controller.update_min_frequency,
+            inputs=min_freq_slider,
+            outputs=min_freq_output
+        )
+        
+        max_freq_slider.change(
+            controller.update_max_frequency,
+            inputs=max_freq_slider,
+            outputs=max_freq_output
+        )
+        
         amp_slider.change(
             controller.update_amplitude,
             inputs=amp_slider,
