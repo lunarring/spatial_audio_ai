@@ -126,6 +126,75 @@ class SO_PlaybackCircularMove(SO_Playback):
         return SoundMessage(sound=sound, position=self.position)
 
 
+class SO_PlaybackSine(SoundObjectBase):
+    def __init__(
+        self,
+        frequency: float = 440.0,
+        amplitude: float = 0.5,
+        phase_offset: float = 0.0,
+        position: np.ndarray = np.zeros(2, dtype=float)
+    ):
+        """
+        Real-time sine wave generator sound object.
+        Args:
+            frequency: Frequency in Hz.
+            amplitude: Amplitude (0.0 to 1.0).
+            phase_offset: Phase offset in radians.
+            position: Position in 2D space.
+        """
+        self.frequency = frequency
+        self.amplitude = amplitude
+        self.phase_offset = phase_offset
+        self.position = position.copy()
+        self.current_phase = 0.0
+        self.last_chunk = np.zeros(CHUNKSIZE, dtype=float)
+        self._id = uuid.uuid4()
+
+    def query(self, tick: int) -> SoundMessage:
+        """Generate next chunk of sine wave."""
+        # Calculate time array for this chunk
+        chunk_duration = CHUNKSIZE / SAMPLING_RATE
+        t = np.linspace(0, chunk_duration, CHUNKSIZE, endpoint=False)
+        
+        # Generate sine wave chunk starting from current phase
+        sound_chunk = self.amplitude * np.sin(
+            2 * np.pi * self.frequency * t + self.current_phase + self.phase_offset
+        )
+        
+        # Update phase for next chunk (maintain continuity)
+        self.current_phase += 2 * np.pi * self.frequency * chunk_duration
+        self.current_phase = self.current_phase % (2 * np.pi)  # Keep phase bounded
+        
+        # Store last chunk
+        self.last_chunk = sound_chunk.copy()
+        
+        return SoundMessage(sound=sound_chunk, position=self.position)
+
+    def set_frequency(self, frequency: float):
+        """Update frequency."""
+        self.frequency = frequency
+
+    def set_amplitude(self, amplitude: float):
+        """Update amplitude."""
+        self.amplitude = amplitude
+
+    def set_phase_offset(self, phase_offset: float):
+        """Update phase offset."""
+        self.phase_offset = phase_offset
+
+    def set_position(self, position: np.ndarray):
+        """Update position."""
+        self.position = position.copy()
+
+    def get_position(self):
+        """Get current position."""
+        return self.position
+
+    def get_last_chunk(self):
+        """Get the last generated chunk."""
+        return self.last_chunk
+
+
 class Spatializer:
     def __init__(self,
                  subwoofer_last_channel_auto_mode=True,

@@ -10,7 +10,8 @@ from spatial_audio_ai.tools.sound_system import SoundSystem
 from spatial_audio_ai.tools.spatializer import (
     Spatializer, 
     Scene,
-    SO_Playback
+    SO_Playback,
+    SO_PlaybackSine
 )
 from spatial_audio_ai.tools.client import (
     SoundNetworkStreamer
@@ -27,6 +28,7 @@ __all__ = [
     'Spatializer',
     'Scene',
     'SO_Playback',
+    'SO_PlaybackSine',
     'SoundNetworkStreamer',
     'get_sample_rate',
     'set_sample_rate',
