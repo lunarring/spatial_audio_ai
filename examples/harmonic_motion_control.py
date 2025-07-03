@@ -27,7 +27,7 @@ from optitrack_python.motive_receiver import MotiveReceiver
 
 class HarmonicMotionController:
     """Controller class for managing real-time multi-harmonic sine wave generation 
-    with motion and orientation control for multiple rigid bodies."""
+    with position-based control for multiple rigid bodies."""
     
     def __init__(self):
         self.spatializer = Spatializer()
@@ -69,10 +69,9 @@ class HarmonicMotionController:
         self.min_frequency = 62.5  # Base frequency
         self.max_frequency = 500.0  # 3 octaves higher (62.5 * 2^3)
         
-        # Position, orientation and tracking data for each rigid body
+        # Position and tracking data for each rigid body
         self.current_heights = {name: 0.0 for name in rigid_body_names}
         self.current_positions = {name: np.array([0.0, 0.0]) for name in rigid_body_names}
-        self.current_orientations = {name: np.array([0.0, 0.0, 0.0, 1.0]) for name in rigid_body_names}
         self.position_scale = 1.0  # Scaling factor for position
         
     def setup_optitrack(self):
@@ -112,7 +111,7 @@ class HarmonicMotionController:
             self.rigid_bodies = {}
     
     def update_from_motion(self):
-        """Update frequency, position, and harmonics based on rigid body motion and orientation for all active objects."""
+        """Update frequency, position, and harmonics based on rigid body motion for all active objects."""
         if not self.rigid_bodies or self.motive is None:
             return
             
@@ -130,10 +129,9 @@ class HarmonicMotionController:
                     continue
                 
                 try:
-                    # Update rigid body and get position and orientation
+                    # Update rigid body and get position
                     rigid_body.update()
                     position = rigid_body.positions.get_last()
-                    orientation = rigid_body.orientations.get_last()
                     
                     if position is not None:
                         # Extract coordinates: X, Y (height), Z
@@ -166,10 +164,7 @@ class HarmonicMotionController:
                         # Update sine wave frequency
                         self.harmonic_objects[name].set_frequency(frequency)
                     
-                    if orientation is not None:
-                        # Update orientation and thus harmonics
-                        self.current_orientations[name] = orientation
-                        self.harmonic_objects[name].set_orientation(orientation)
+
                 
                 except Exception as e:
                     print(f"Error updating rigid body {name}: {e}")
@@ -295,11 +290,19 @@ class HarmonicMotionController:
             harmonic_obj.set_harmonic_decay(decay)
         return f"Harmonic Decay: {decay:.2f}"
     
-    def update_orientation_mapping(self, mode):
-        """Update orientation mapping mode for all objects."""
+    def update_position_harmonic_control(self, enabled, x_min, x_max, min_harmonics, max_harmonics):
+        """Update position-based harmonic control for all objects."""
         for harmonic_obj in self.harmonic_objects.values():
-            harmonic_obj.set_orientation_mapping_mode(mode)
-        return f"Orientation Mapping: {mode}"
+            harmonic_obj.set_position_harmonic_control(enabled, x_min, x_max, min_harmonics, max_harmonics)
+        status = "Enabled" if enabled else "Disabled"
+        return f"X→Harmonics: {status} (X:{x_min:.1f}→{x_max:.1f}, H:{min_harmonics}→{max_harmonics})"
+    
+    def update_position_volume_control(self, enabled, z_min, z_max, min_volume, max_volume):
+        """Update position-based volume control for all objects."""
+        for harmonic_obj in self.harmonic_objects.values():
+            harmonic_obj.set_position_volume_control(enabled, z_min, z_max, min_volume, max_volume)
+        status = "Enabled" if enabled else "Disabled"
+        return f"Z→Volume: {status} (Z:{z_min:.1f}→{z_max:.1f}, V:{min_volume:.1f}→{max_volume:.1f})"
     
     def update_frequency_filter(self, enabled, filter_type, cutoff_low, cutoff_high, rolloff):
         """Update frequency filtering for all objects."""
@@ -362,17 +365,20 @@ class HarmonicMotionController:
                 current_amp = self.harmonic_objects[name].current_amplitude
                 rb_pos = self.current_positions[name]
                 height = self.current_heights[name]
-                orientation = self.current_orientations[name]
                 harmonic_amps = self.harmonic_objects[name].get_harmonic_amplitudes()
+                position_info = self.harmonic_objects[name].get_position_control_info()
                 
                 # Format harmonic amplitudes for display
                 harmonic_str = ", ".join([f"{amp:.2f}" for amp in harmonic_amps[:4]])  # Show first 4
+                
+                # Count active harmonics
+                active_harmonics = sum(1 for amp in harmonic_amps if amp > 0.01)
                 
                 body_details.append(
                     f"  {name}: {'Active' if is_active else 'Inactive'} | "
                     f"Pos: ({rb_pos[0]:.2f}, {height:.2f}, {rb_pos[1]:.2f}) | "
                     f"Freq: {current_freq:.1f} Hz | Amp: {current_amp:.2f} | "
-                    f"Orient: ({orientation[0]:.2f}, {orientation[1]:.2f}, {orientation[2]:.2f}, {orientation[3]:.2f}) | "
+                    f"Active H: {active_harmonics} | Vol: {position_info['current_volume_multiplier']:.2f} | "
                     f"Harmonics: [{harmonic_str}...]"
                 )
             else:
@@ -384,11 +390,11 @@ class HarmonicMotionController:
             smoothing = first_obj.smoothing_factor
             harmonic_decay = first_obj.harmonic_decay
             num_harmonics = first_obj.num_harmonics
-            orientation_mode = first_obj.orientation_mapping_mode
+            position_control_info = first_obj.get_position_control_info()
             filter_info = first_obj.get_frequency_filter_info()
         else:
             smoothing = harmonic_decay = num_harmonics = 0
-            orientation_mode = "None"
+            position_control_info = {"x_harmonic_enabled": False, "z_volume_enabled": False}
             filter_info = {"enabled": False, "type": "none"}
         
         status = f"""Status: {'Running' if self.is_running else 'Stopped'}
@@ -404,7 +410,14 @@ Global Settings:
   Smoothing: {smoothing:.2f}
   Harmonics: {num_harmonics}
   Harmonic Decay: {harmonic_decay:.2f}
-  Orientation Mapping: {orientation_mode}
+  
+Position Control:
+  X→Harmonics: {'Enabled' if position_control_info['x_harmonic_enabled'] else 'Disabled'}
+  X Range: {position_control_info['x_range'][0]:.1f} → {position_control_info['x_range'][1]:.1f}
+  Harmonic Range: {position_control_info['harmonic_range'][0]} → {position_control_info['harmonic_range'][1]}
+  Z→Volume: {'Enabled' if position_control_info['z_volume_enabled'] else 'Disabled'}
+  Z Range: {position_control_info['z_range'][0]:.1f} → {position_control_info['z_range'][1]:.1f}
+  Volume Range: {position_control_info['volume_range'][0]:.1f} → {position_control_info['volume_range'][1]:.1f}
   
 Frequency Filter:
   Enabled: {filter_info['enabled']}
@@ -429,7 +442,8 @@ def create_interface():
             "**Frequency is controlled by OptiTrack rigid body height** "
             "(adjustable frequency range with exponential mapping). "
             "**Position is controlled by X and Z coordinates**. "
-            "**Harmonics are controlled by orientation (quaternion)** of each rigid body."
+            "**Number of harmonics is controlled by X position** and "
+            "**volume is controlled by Z position** of each rigid body."
         )
         
         with gr.Row():
@@ -479,7 +493,7 @@ def create_interface():
                 
                 gr.Markdown("### Harmonic Controls")
                 gr.Markdown(
-                    "**Harmonics:** Orientation Controlled (Rigid Body Quaternion)"
+                    "**Harmonics:** Position Controlled (X-axis controls number of active harmonics)"
                 )
                 
                 harmonic_decay_slider = gr.Slider(
@@ -487,14 +501,59 @@ def create_interface():
                     label="Harmonic Decay Factor"
                 )
                 
-                orientation_mapping_dropdown = gr.Dropdown(
-                    choices=[
-                        "quaternion_simple", "quaternion_complex", 
-                        "basis_fourier", "basis_chebyshev", "basis_legendre", 
-                        "basis_wavelets", "basis_radial"
-                    ],
-                    value="basis_fourier",
-                    label="Orientation Mapping Mode"
+                # Position-based harmonic control
+                x_harmonic_enabled = gr.Checkbox(
+                    label="Enable X→Harmonics Control", value=True
+                )
+                
+                x_min_slider = gr.Slider(
+                    minimum=-5.0, maximum=0.0, value=-2.0, step=0.1,
+                    label="X Position Min (minimum harmonics)"
+                )
+                
+                x_max_slider = gr.Slider(
+                    minimum=0.0, maximum=5.0, value=2.0, step=0.1,
+                    label="X Position Max (maximum harmonics)"
+                )
+                
+                min_harmonics_slider = gr.Slider(
+                    minimum=1, maximum=6, value=1, step=1,
+                    label="Minimum Active Harmonics"
+                )
+                
+                max_harmonics_slider = gr.Slider(
+                    minimum=1, maximum=6, value=6, step=1,
+                    label="Maximum Active Harmonics"
+                )
+                
+                gr.Markdown("### Volume Control")
+                gr.Markdown(
+                    "**Volume:** Position Controlled (Z-axis controls volume multiplier)"
+                )
+                
+                # Position-based volume control
+                z_volume_enabled = gr.Checkbox(
+                    label="Enable Z→Volume Control", value=True
+                )
+                
+                z_min_slider = gr.Slider(
+                    minimum=-5.0, maximum=0.0, value=-2.0, step=0.1,
+                    label="Z Position Min (minimum volume)"
+                )
+                
+                z_max_slider = gr.Slider(
+                    minimum=0.0, maximum=5.0, value=2.0, step=0.1,
+                    label="Z Position Max (maximum volume)"
+                )
+                
+                min_volume_slider = gr.Slider(
+                    minimum=0.0, maximum=1.0, value=0.0, step=0.05,
+                    label="Minimum Volume Multiplier"
+                )
+                
+                max_volume_slider = gr.Slider(
+                    minimum=0.0, maximum=2.0, value=1.4, step=0.05,
+                    label="Maximum Volume Multiplier"
                 )
                 
                 gr.Markdown("### Frequency Filtering")
@@ -575,8 +634,13 @@ def create_interface():
                 harmonic_decay_output = gr.Textbox(
                     label="Harmonic Decay Status", value="Harmonic Decay: 0.60"
                 )
-                orientation_mapping_output = gr.Textbox(
-                    label="Orientation Mapping Status", value="Orientation Mapping: basis_fourier"
+                position_harmonic_output = gr.Textbox(
+                    label="Position Harmonic Control Status", 
+                    value="X→Harmonics: Enabled (X:-2.0→2.0, H:1→6)"
+                )
+                position_volume_output = gr.Textbox(
+                    label="Position Volume Control Status", 
+                    value="Z→Volume: Enabled (Z:-2.0→2.0, V:0.0→1.4)"
                 )
                 filter_output = gr.Textbox(
                     label="Filter Status", value="Filter: Enabled (lowpass, 1000-4000Hz, 12dB/oct)"
@@ -650,11 +714,28 @@ def create_interface():
             outputs=harmonic_decay_output
         )
         
-        orientation_mapping_dropdown.change(
-            controller.update_orientation_mapping,
-            inputs=orientation_mapping_dropdown,
-            outputs=orientation_mapping_output
-        )
+        # Position control wrapper functions
+        def update_position_harmonic_wrapper(*args):
+            return controller.update_position_harmonic_control(*args)
+        
+        def update_position_volume_wrapper(*args):
+            return controller.update_position_volume_control(*args)
+        
+        # Position harmonic control event handlers
+        for control in [x_harmonic_enabled, x_min_slider, x_max_slider, min_harmonics_slider, max_harmonics_slider]:
+            control.change(
+                update_position_harmonic_wrapper,
+                inputs=[x_harmonic_enabled, x_min_slider, x_max_slider, min_harmonics_slider, max_harmonics_slider],
+                outputs=position_harmonic_output
+            )
+        
+        # Position volume control event handlers  
+        for control in [z_volume_enabled, z_min_slider, z_max_slider, min_volume_slider, max_volume_slider]:
+            control.change(
+                update_position_volume_wrapper,
+                inputs=[z_volume_enabled, z_min_slider, z_max_slider, min_volume_slider, max_volume_slider],
+                outputs=position_volume_output
+            )
         
         # Frequency filter event handlers
         def update_filter_wrapper(*args):
@@ -764,10 +845,10 @@ if __name__ == "__main__":
     print(f"Audio settings: {SAMPLING_RATE} Hz, {CHUNKSIZE} samples per chunk")
     print("Motion control by OptiTrack Rigid Bodies A, B, C, D:")
     print("  Y-axis (height): 0m = 62.5 Hz, 2m = 500 Hz (3 octaves, exponential)")
-    print("  X-axis and Z-axis: Control spatial position of each sound object")
-    print("  Orientation (quaternion): Controls harmonic amplitudes")
+    print("  X-axis: Controls number of active harmonics (position-based)")
+    print("  Z-axis: Controls volume multiplier (position-based)")
     print("  Base frequencies: A=62.5Hz, B=125Hz, C=250Hz, D=500Hz")
-    print("  6 harmonics per object with orientation-controlled amplitudes")
+    print("  6 harmonics per object with position-controlled count and volume")
     print("Open your web browser to control activation and parameters")
     
     interface = create_interface()

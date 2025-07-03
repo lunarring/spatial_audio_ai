@@ -322,8 +322,20 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         self.last_chunk = np.zeros(CHUNKSIZE, dtype=float)
         self._id = uuid.uuid4()
         
-        # Orientation mapping parameters
-        self.orientation_mapping_mode = "basis_fourier"  # Available modes: quaternion_simple, quaternion_complex, basis_fourier, basis_chebyshev, basis_legendre, basis_wavelets, basis_radial
+        # Position-based harmonic control
+        self.x_harmonic_control_enabled = True
+        self.x_min_position = -2.0  # Min X position
+        self.x_max_position = 2.0   # Max X position
+        self.x_min_harmonics = 1    # Min number of active harmonics
+        self.x_max_harmonics = num_harmonics  # Max number of active harmonics
+        
+        # Position-based volume control
+        self.z_volume_control_enabled = True
+        self.z_min_position = -2.0  # Min Z position
+        self.z_max_position = 2.0   # Max Z position
+        self.z_min_volume = 0.0     # Min volume multiplier
+        self.z_max_volume = 1.0     # Max volume multiplier
+        self.current_volume_multiplier = 1.0
         
         # Frequency filtering parameters
         self.frequency_filter_enabled = True
@@ -361,6 +373,10 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
             (1 - self.position_smoothing) * self.target_position
         )
         
+        # Update harmonic amplitudes based on position
+        self._update_harmonics_from_position()
+        self._update_volume_from_position()
+        
         # Smooth harmonic amplitudes
         self.current_harmonic_amplitudes = (
             self.harmonic_smoothing * self.current_harmonic_amplitudes + 
@@ -378,7 +394,7 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         
         for i in range(self.num_harmonics):
             harmonic_freq = self.current_frequency * (i + 1)  # Fundamental, 2nd, 3rd harmonics...
-            harmonic_amplitude = self.current_amplitude * filtered_amplitudes[i]
+            harmonic_amplitude = self.current_amplitude * filtered_amplitudes[i] * self.current_volume_multiplier
             
             # Generate harmonic with phase continuity
             instantaneous_phase = (
@@ -415,416 +431,91 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         """Update target position (will be smoothed)."""
         self.target_position = position.copy()
 
-    def set_orientation(self, orientation: np.ndarray):
-        """
-        Update harmonic amplitudes based on orientation quaternion.
-        Args:
-            orientation: Quaternion as [x, y, z, w] array
-        """
-        if self.orientation_mapping_mode == "quaternion_simple":
-            self._map_orientation_simple(orientation)
-        elif self.orientation_mapping_mode == "quaternion_complex":
-            self._map_orientation_complex(orientation)
-        elif self.orientation_mapping_mode == "basis_fourier":
-            self._map_orientation_basis_fourier(orientation)
-        elif self.orientation_mapping_mode == "basis_chebyshev":
-            self._map_orientation_basis_chebyshev(orientation)
-        elif self.orientation_mapping_mode == "basis_legendre":
-            self._map_orientation_basis_legendre(orientation)
-        elif self.orientation_mapping_mode == "basis_wavelets":
-            self._map_orientation_basis_wavelets(orientation)
-        elif self.orientation_mapping_mode == "basis_radial":
-            self._map_orientation_basis_radial(orientation)
-
-    def _map_orientation_simple(self, orientation: np.ndarray):
-        """
-        Simple orientation mapping: use quaternion components directly.
-        """
-        # Normalize quaternion if needed
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
+    def _update_harmonics_from_position(self):
+        """Update number of active harmonics based on X position."""
+        if not self.x_harmonic_control_enabled:
+            return
         
-        # Map quaternion components to harmonic amplitudes
-        # Each component influences different harmonics
+        x_pos = self.current_position[0]  # X coordinate
+        
+        # Clamp X position to valid range
+        x_clamped = np.clip(x_pos, self.x_min_position, self.x_max_position)
+        
+        # Map X position to number of active harmonics
+        x_ratio = (x_clamped - self.x_min_position) / (self.x_max_position - self.x_min_position)
+        num_active_harmonics = int(
+            self.x_min_harmonics + x_ratio * (self.x_max_harmonics - self.x_min_harmonics)
+        )
+        num_active_harmonics = np.clip(num_active_harmonics, self.x_min_harmonics, self.x_max_harmonics)
+        
+        # Update harmonic amplitudes - only first N harmonics are active
         base_amplitudes = np.array([
             self.harmonic_decay ** i for i in range(self.num_harmonics)
         ])
         
-        # Create modulation based on quaternion components
-        modulation = np.zeros(self.num_harmonics)
-        
-        # Use different quaternion components for different harmonics
+        # Zero out harmonics beyond the active count
         for i in range(self.num_harmonics):
-            if i % 4 == 0:
-                modulation[i] = abs(w) * 2.0  # Fundamental controlled by w
-            elif i % 4 == 1:
-                modulation[i] = abs(x) * 2.0  # 2nd harmonic by x
-            elif i % 4 == 2:
-                modulation[i] = abs(y) * 2.0  # 3rd harmonic by y
-            else:
-                modulation[i] = abs(z) * 2.0  # 4th harmonic by z
+            if i >= num_active_harmonics:
+                base_amplitudes[i] = 0.0
         
-        # Apply modulation to base amplitudes
-        self.target_harmonic_amplitudes = base_amplitudes * (0.1 + modulation)
+        self.target_harmonic_amplitudes = base_amplitudes
+    
+    def _update_volume_from_position(self):
+        """Update volume multiplier based on Z position."""
+        if not self.z_volume_control_enabled:
+            self.current_volume_multiplier = 1.0
+            return
         
-        # Normalize to prevent clipping
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
+        z_pos = self.current_position[1]  # Z coordinate (stored as Y in our 2D position)
+        
+        # Clamp Z position to valid range
+        z_clamped = np.clip(z_pos, self.z_min_position, self.z_max_position)
+        
+        # Map Z position to volume multiplier
+        z_ratio = (z_clamped - self.z_min_position) / (self.z_max_position - self.z_min_position)
+        self.current_volume_multiplier = self.z_min_volume + z_ratio * (self.z_max_volume - self.z_min_volume)
 
-    def _map_orientation_complex(self, orientation: np.ndarray):
-        """
-        Complex orientation mapping: convert to Euler angles and use trigonometric functions.
-        """
-        # Normalize quaternion
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
+    def set_position_harmonic_control(self, enabled: bool, x_min: float = None, x_max: float = None, 
+                                     min_harmonics: int = None, max_harmonics: int = None):
+        """Configure X position to harmonic count mapping."""
+        self.x_harmonic_control_enabled = enabled
         
-        # Convert quaternion to Euler angles (roll, pitch, yaw)
-        # Roll (x-axis rotation)
-        sinr_cosp = 2 * (w * x + y * z)
-        cosr_cosp = 1 - 2 * (x * x + y * y)
-        roll = np.arctan2(sinr_cosp, cosr_cosp)
+        if x_min is not None:
+            self.x_min_position = x_min
+        if x_max is not None:
+            self.x_max_position = x_max
+        if min_harmonics is not None:
+            self.x_min_harmonics = max(1, min_harmonics)
+        if max_harmonics is not None:
+            self.x_max_harmonics = min(self.num_harmonics, max_harmonics)
+    
+    def set_position_volume_control(self, enabled: bool, z_min: float = None, z_max: float = None,
+                                   min_volume: float = None, max_volume: float = None):
+        """Configure Z position to volume mapping."""
+        self.z_volume_control_enabled = enabled
         
-        # Pitch (y-axis rotation)
-        sinp = 2 * (w * y - z * x)
-        if abs(sinp) >= 1:
-            pitch = np.copysign(np.pi / 2, sinp)  # Use 90 degrees if out of range
-        else:
-            pitch = np.arcsin(sinp)
-        
-        # Yaw (z-axis rotation)
-        siny_cosp = 2 * (w * z + x * y)
-        cosy_cosp = 1 - 2 * (y * y + z * z)
-        yaw = np.arctan2(siny_cosp, cosy_cosp)
-        
-        # Base harmonic amplitudes
-        base_amplitudes = np.array([
-            self.harmonic_decay ** i for i in range(self.num_harmonics)
-        ])
-        
-        # Create complex modulation patterns based on Euler angles
-        modulation = np.zeros(self.num_harmonics)
-        
-        for i in range(self.num_harmonics):
-            # Use different combinations of Euler angles for each harmonic
-            angle_factor = (i + 1) * 0.5  # Scale factor for each harmonic
-            
-            # Combine roll, pitch, yaw with different weightings
-            roll_contrib = np.cos(roll * angle_factor) ** 2
-            pitch_contrib = np.sin(pitch * angle_factor) ** 2
-            yaw_contrib = np.cos(yaw * angle_factor + np.pi/4) ** 2
-            
-            # Weight contributions differently for each harmonic
-            if i % 3 == 0:
-                modulation[i] = 0.7 * roll_contrib + 0.2 * pitch_contrib + 0.1 * yaw_contrib
-            elif i % 3 == 1:
-                modulation[i] = 0.2 * roll_contrib + 0.7 * pitch_contrib + 0.1 * yaw_contrib
-            else:
-                modulation[i] = 0.1 * roll_contrib + 0.2 * pitch_contrib + 0.7 * yaw_contrib
-        
-        # Apply modulation to base amplitudes
-        self.target_harmonic_amplitudes = base_amplitudes * (0.2 + modulation * 1.5)
-        
-        # Normalize to prevent clipping
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
+        if z_min is not None:
+            self.z_min_position = z_min
+        if z_max is not None:
+            self.z_max_position = z_max
+        if min_volume is not None:
+            self.z_min_volume = max(0.0, min_volume)
+        if max_volume is not None:
+            self.z_max_volume = max_volume
+    
+    def get_position_control_info(self):
+        """Get current position control configuration."""
+        return {
+            "x_harmonic_enabled": self.x_harmonic_control_enabled,
+            "x_range": (self.x_min_position, self.x_max_position),
+            "harmonic_range": (self.x_min_harmonics, self.x_max_harmonics),
+            "z_volume_enabled": self.z_volume_control_enabled,
+            "z_range": (self.z_min_position, self.z_max_position),
+            "volume_range": (self.z_min_volume, self.z_max_volume),
+            "current_volume_multiplier": self.current_volume_multiplier
+        }
 
-    def _map_orientation_basis_fourier(self, orientation: np.ndarray):
-        """
-        Fourier basis functions: Use sine/cosine combinations for smooth, periodic variations.
-        """
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
-        
-        # Convert to Euler angles for more interpretable parameters
-        roll, pitch, yaw = self._quat_to_euler(quat)
-        
-        # Base harmonic amplitudes
-        base_amplitudes = np.array([
-            self.harmonic_decay ** i for i in range(self.num_harmonics)
-        ])
-        
-        # Create Fourier basis modulation
-        modulation = np.zeros(self.num_harmonics)
-        
-        for i in range(self.num_harmonics):
-            # Use different frequency combinations for each harmonic
-            freq_scale = (i + 1) * 0.5
-            
-            # Fourier series expansion with multiple frequencies
-            fourier_term = (
-                0.5 * np.cos(roll * freq_scale) +
-                0.3 * np.sin(pitch * freq_scale * 2) +
-                0.2 * np.cos(yaw * freq_scale * 3) +
-                0.1 * np.sin(roll * pitch * freq_scale) +
-                0.1 * np.cos(pitch * yaw * freq_scale)
-            )
-            
-            # Add harmonics of the Fourier expansion
-            fourier_term += (
-                0.1 * np.cos(roll * freq_scale * 2) +
-                0.05 * np.sin(pitch * freq_scale * 4)
-            )
-            
-            modulation[i] = fourier_term
-        
-        # Normalize modulation to [0, 1] range
-        modulation = (modulation - np.min(modulation)) / (np.max(modulation) - np.min(modulation))
-        
-        # Apply modulation with scaling
-        self.target_harmonic_amplitudes = base_amplitudes * (0.1 + modulation * 1.5)
-        
-        # Final normalization
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
 
-    def _map_orientation_basis_chebyshev(self, orientation: np.ndarray):
-        """
-        Chebyshev polynomial basis: Creates sharp, dramatic changes in harmonic content.
-        """
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
-        
-        # Convert quaternion components to [-1, 1] range for Chebyshev polynomials
-        params = np.array([x, y, z, w])
-        
-        # Base harmonic amplitudes
-        base_amplitudes = np.array([
-            self.harmonic_decay ** i for i in range(self.num_harmonics)
-        ])
-        
-        modulation = np.zeros(self.num_harmonics)
-        
-        for i in range(self.num_harmonics):
-            # Use different Chebyshev polynomials for each harmonic
-            degree = (i % 6) + 1  # Use degrees 1-6
-            param_idx = i % 4     # Cycle through quaternion components
-            t = params[param_idx] # Parameter in [-1, 1]
-            
-            # Chebyshev polynomials T_n(t)
-            if degree == 1:
-                cheby_val = t
-            elif degree == 2:
-                cheby_val = 2*t**2 - 1
-            elif degree == 3:
-                cheby_val = 4*t**3 - 3*t
-            elif degree == 4:
-                cheby_val = 8*t**4 - 8*t**2 + 1
-            elif degree == 5:
-                cheby_val = 16*t**5 - 20*t**3 + 5*t
-            else:  # degree == 6
-                cheby_val = 32*t**6 - 48*t**4 + 18*t**2 - 1
-            
-            # Mix with other parameters for complexity
-            mix_param = params[(param_idx + 1) % 4]
-            mixed_val = 0.7 * cheby_val + 0.3 * mix_param
-            
-            modulation[i] = mixed_val
-        
-        # Normalize to [0, 1]
-        modulation = (modulation + 1) / 2  # Shift from [-1,1] to [0,1]
-        
-        # Apply with strong contrast
-        self.target_harmonic_amplitudes = base_amplitudes * (0.05 + modulation * 2.0)
-        
-        # Normalize
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
-
-    def _map_orientation_basis_legendre(self, orientation: np.ndarray):
-        """
-        Legendre polynomial basis: Smooth, orthogonal basis functions.
-        """
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
-        
-        # Convert to Euler for interpretable parameters
-        roll, pitch, yaw = self._quat_to_euler(quat)
-        
-        # Normalize angles to [-1, 1] for Legendre polynomials
-        angles = np.array([roll, pitch, yaw]) / np.pi
-        angles = np.clip(angles, -1, 1)
-        
-        # Base harmonic amplitudes
-        base_amplitudes = np.array([
-            self.harmonic_decay ** i for i in range(self.num_harmonics)
-        ])
-        
-        modulation = np.zeros(self.num_harmonics)
-        
-        for i in range(self.num_harmonics):
-            degree = i % 6  # Use degrees 0-5
-            angle_idx = i % 3  # Cycle through angles
-            t = angles[angle_idx]
-            
-            # Legendre polynomials P_n(t)
-            if degree == 0:
-                legendre_val = 1
-            elif degree == 1:
-                legendre_val = t
-            elif degree == 2:
-                legendre_val = 0.5 * (3*t**2 - 1)
-            elif degree == 3:
-                legendre_val = 0.5 * (5*t**3 - 3*t)
-            elif degree == 4:
-                legendre_val = 0.125 * (35*t**4 - 30*t**2 + 3)
-            else:  # degree == 5
-                legendre_val = 0.125 * (63*t**5 - 70*t**3 + 15*t)
-            
-            # Add cross-terms for interaction
-            cross_term = angles[(angle_idx + 1) % 3] * angles[(angle_idx + 2) % 3]
-            combined_val = 0.8 * legendre_val + 0.2 * cross_term
-            
-            modulation[i] = combined_val
-        
-        # Normalize to [0, 1]
-        modulation = (modulation - np.min(modulation)) / (np.max(modulation) - np.min(modulation))
-        
-        # Apply modulation
-        self.target_harmonic_amplitudes = base_amplitudes * (0.2 + modulation * 1.3)
-        
-        # Normalize
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
-
-    def _map_orientation_basis_wavelets(self, orientation: np.ndarray):
-        """
-        Wavelet-like basis: Sharp transitions and localized features.
-        """
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
-        
-        # Use quaternion components directly
-        params = np.array([x, y, z, w])
-        
-        # Base harmonic amplitudes
-        base_amplitudes = np.array([
-            self.harmonic_decay ** i for i in range(self.num_harmonics)
-        ])
-        
-        modulation = np.zeros(self.num_harmonics)
-        
-        for i in range(self.num_harmonics):
-            param_idx = i % 4
-            t = params[param_idx] * 10  # Scale for wavelet frequency
-            
-            # Different wavelet-like functions
-            wavelet_type = i % 4
-            
-            if wavelet_type == 0:
-                # Morlet-like wavelet
-                wavelet_val = np.cos(t) * np.exp(-t**2 / 8)
-            elif wavelet_type == 1:
-                # Mexican hat wavelet
-                wavelet_val = (1 - t**2 / 2) * np.exp(-t**2 / 4)
-            elif wavelet_type == 2:
-                # Daubechies-like
-                if abs(t) < 2:
-                    wavelet_val = np.sin(t * np.pi) * (1 - abs(t) / 2)
-                else:
-                    wavelet_val = 0
-            else:
-                # Custom sharp wavelet
-                wavelet_val = np.sin(t * 2) * np.exp(-abs(t) / 3) * np.cos(t / 2)
-            
-            # Add interaction with other parameters
-            interaction = np.sum(params) * 0.1
-            modulation[i] = wavelet_val + interaction
-        
-        # Normalize to [0, 1]
-        modulation = (modulation - np.min(modulation)) / (np.max(modulation) - np.min(modulation))
-        
-        # Apply with emphasis on sharp features
-        self.target_harmonic_amplitudes = base_amplitudes * (0.1 + modulation * 1.8)
-        
-        # Normalize
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
-
-    def _map_orientation_basis_radial(self, orientation: np.ndarray):
-        """
-        Radial basis functions: Distance-based smooth interpolation.
-        """
-        quat = orientation / np.linalg.norm(orientation)
-        x, y, z, w = quat
-        
-        # Define some reference points in quaternion space
-        reference_quats = np.array([
-            [1, 0, 0, 0],    # Reference 1
-            [0, 1, 0, 0],    # Reference 2
-            [0, 0, 1, 0],    # Reference 3
-            [0, 0, 0, 1],    # Reference 4
-            [0.707, 0.707, 0, 0],  # Reference 5
-            [0.5, 0.5, 0.5, 0.5],  # Reference 6
-        ])
-        
-        # Base harmonic amplitudes
-        base_amplitudes = np.array([
-            self.harmonic_decay ** i for i in range(self.num_harmonics)
-        ])
-        
-        modulation = np.zeros(self.num_harmonics)
-        
-        for i in range(self.num_harmonics):
-            # Use different reference points for each harmonic
-            ref_idx = i % len(reference_quats)
-            ref_quat = reference_quats[ref_idx]
-            
-            # Calculate distance to reference quaternion
-            # Use quaternion distance: d = 1 - |q1 · q2|
-            dot_product = np.abs(np.dot(quat, ref_quat))
-            distance = 1 - dot_product
-            
-            # Radial basis function (Gaussian)
-            sigma = 0.5  # Width parameter
-            rbf_val = np.exp(-distance**2 / (2 * sigma**2))
-            
-            # Add some mixing with other reference points
-            if i + 1 < len(reference_quats):
-                ref2_quat = reference_quats[(ref_idx + 1) % len(reference_quats)]
-                dot2 = np.abs(np.dot(quat, ref2_quat))
-                distance2 = 1 - dot2
-                rbf_val2 = np.exp(-distance2**2 / (2 * sigma**2))
-                rbf_val = 0.7 * rbf_val + 0.3 * rbf_val2
-            
-            modulation[i] = rbf_val
-        
-        # Apply modulation
-        self.target_harmonic_amplitudes = base_amplitudes * (0.3 + modulation * 1.2)
-        
-        # Normalize
-        max_amp = np.max(self.target_harmonic_amplitudes)
-        if max_amp > 1.0:
-            self.target_harmonic_amplitudes /= max_amp
-
-    def _quat_to_euler(self, quat):
-        """Helper function to convert quaternion to Euler angles."""
-        x, y, z, w = quat
-        
-        # Roll (x-axis rotation)
-        sinr_cosp = 2 * (w * x + y * z)
-        cosr_cosp = 1 - 2 * (x * x + y * y)
-        roll = np.arctan2(sinr_cosp, cosr_cosp)
-        
-        # Pitch (y-axis rotation)
-        sinp = 2 * (w * y - z * x)
-        if abs(sinp) >= 1:
-            pitch = np.copysign(np.pi / 2, sinp)
-        else:
-            pitch = np.arcsin(sinp)
-        
-        # Yaw (z-axis rotation)
-        siny_cosp = 2 * (w * z + x * y)
-        cosy_cosp = 1 - 2 * (y * y + z * z)
-        yaw = np.arctan2(siny_cosp, cosy_cosp)
-        
-        return roll, pitch, yaw
 
     def _apply_frequency_filter(self, amplitudes):
         """Apply frequency filtering to harmonic amplitudes."""
@@ -991,17 +682,7 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         # For now, just update the base
         self.target_harmonic_amplitudes = base_amplitudes
     
-    def set_orientation_mapping_mode(self, mode: str):
-        """Set the orientation mapping mode."""
-        valid_modes = [
-            "quaternion_simple", "quaternion_complex", 
-            "basis_fourier", "basis_chebyshev", "basis_legendre", 
-            "basis_wavelets", "basis_radial"
-        ]
-        if mode in valid_modes:
-            self.orientation_mapping_mode = mode
-        else:
-            raise ValueError(f"Mode must be one of: {valid_modes}")
+
 
 
 class Spatializer:
