@@ -69,7 +69,10 @@ class SineWaveController:
                     
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)
+                t0 = time.perf_counter()
                 self.sound_streamer.send(chunk)
+                t1 = time.perf_counter()
+                print(f"[CLIENT] pack+send: {t1-t0:.3f}s")
                 chunk_counter += 1
                 
                 # Schedule next chunk send time (precise timing)

@@ -21,7 +21,10 @@ def handle_client(conn, addr, sound_system, verbose=False):
         
         while True:
             try:
+                t0 = time.perf_counter()
                 sound_array = conn.recv()
+                t1 = time.perf_counter()
+                print(f"[SERVER] recv+unpack: {t1-t0:.3f}s")
                 
                 # Check for disconnection or empty message
                 if sound_array is None or not sound_array.size:
