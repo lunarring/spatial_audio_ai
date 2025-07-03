@@ -6,7 +6,7 @@ This script demonstrates how different filter types affect the harmonic content.
 """
 
 import numpy as np
-from spatial_audio_ai.tools.spatializer import SO_PlaybackMultiHarmonic
+from spatial_audio_ai.tools.sound_objects import SO_PlaybackMultiHarmonic
 
 
 def test_frequency_filters():

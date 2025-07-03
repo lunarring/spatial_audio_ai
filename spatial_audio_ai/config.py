@@ -43,6 +43,8 @@ def set_sample_rate(rate: Literal["44100", "48000"]) -> None:
 # BLOCKSIZE optimized for 48KHz
 # Target: ~21.3ms buffer (1024 samples at 48KHz)
 BLOCKSIZE = 1024
+# Define CHUNKSIZE for buffer sizes throughout the library
+CHUNKSIZE = BLOCKSIZE * 4
 
 # Audio processing settings
 DEFAULT_FADE_DURATION = 0.4

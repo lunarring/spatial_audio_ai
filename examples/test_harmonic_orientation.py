@@ -9,13 +9,8 @@ orientation changes and showing how they affect the harmonic content.
 import numpy as np
 import time
 import threading
-from spatial_audio_ai.tools.spatializer import (
-    SO_PlaybackMultiHarmonic, 
-    Spatializer, 
-    Scene,
-    CHUNKSIZE,
-    SAMPLING_RATE
-)
+from spatial_audio_ai.tools.spatializer import Spatializer, Scene, CHUNKSIZE, SAMPLING_RATE
+from spatial_audio_ai.tools.sound_objects import SO_PlaybackMultiHarmonic
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
 
 

@@ -11,13 +11,8 @@ import numpy as np
 import time
 import threading
 import gradio as gr
-from spatial_audio_ai.tools.spatializer import (
-    SO_PlaybackSine, 
-    Spatializer, 
-    Scene,
-    CHUNKSIZE,
-    SAMPLING_RATE
-)
+from spatial_audio_ai.tools.spatializer import Spatializer, Scene, CHUNKSIZE, SAMPLING_RATE
+from spatial_audio_ai.tools.sound_objects import SO_PlaybackSine
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
 import lunar_tools as lt
 from optitrack_python.rigid_body import RigidBody

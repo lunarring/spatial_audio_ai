@@ -7,9 +7,8 @@ __version__ = "0.1.0"
 
 # Import core components
 from spatial_audio_ai.tools.sound_system import SoundSystem
-from spatial_audio_ai.tools.spatializer import (
-    Spatializer, 
-    Scene,
+from spatial_audio_ai.tools.spatializer import Spatializer, Scene
+from spatial_audio_ai.tools.sound_objects import (
     SO_Playback,
     SO_PlaybackSine,
     SO_PlaybackMultiHarmonic
