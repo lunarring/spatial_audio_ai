@@ -123,24 +123,29 @@ class SO_PlaybackSine(SoundObjectBase):
         amplitude: float = 0.5,
         phase_offset: float = 0.0,
         position: np.ndarray = np.zeros(2, dtype=float),
-        smoothing_factor: float = 0.95
+        smoothing_factor: float = 0.95,
+        mode: str = "smart"
     ):
         """
-        Real-time sine wave generator with smooth parameter transitions.
+        Real-time sine wave generator with two operation modes.
         Args:
             frequency: Frequency in Hz.
             amplitude: Amplitude (0.0 to 1.0).
             phase_offset: Phase offset in radians.
             position: Position in 2D space.
             smoothing_factor: Smoothing factor for parameter changes (0.9-0.99).
+            mode: Operation mode - "barebone" for immediate changes, "smart" for smooth transitions.
         """
+        # Operation mode
+        self.mode = mode  # "barebone" or "smart"
+        
         # Target values (what we want to reach)
         self.target_frequency = frequency
         self.target_amplitude = amplitude
         self.target_phase_offset = phase_offset
         self.target_position = position.copy()
         
-        # Current values (what we're actually using, smoothed)
+        # Current values (what we're actually using, smoothed in smart mode)
         self.current_frequency = frequency
         self.current_amplitude = amplitude
         self.current_phase_offset = phase_offset
@@ -149,8 +154,9 @@ class SO_PlaybackSine(SoundObjectBase):
         # Phase state management
         self.current_phase = 0.0
         self.last_frequency = frequency  # Track for phase continuity
+        self.last_chunk_end_value = 0.0  # Track last sample value for seamless transitions
         
-        # Smoothing configuration
+        # Smoothing configuration (only used in smart mode)
         self.smoothing_factor = smoothing_factor
         self.amplitude_smoothing = smoothing_factor
         self.position_smoothing = smoothing_factor
@@ -161,19 +167,50 @@ class SO_PlaybackSine(SoundObjectBase):
         self._id = uuid.uuid4()
 
     def query(self, tick: int) -> SoundMessage:
-        """Generate next chunk with smooth parameter transitions."""
+        """Generate next chunk based on the current mode."""
+        if self.mode == "barebone":
+            return self._query_barebone(tick)
+        else:  # smart mode
+            return self._query_smart(tick)
+
+    def _query_barebone(self, tick: int) -> SoundMessage:
+        """Barebone mode: immediate parameter changes, no smoothing."""
         chunk_duration = CHUNKSIZE / SAMPLING_RATE
         t = np.linspace(0, chunk_duration, CHUNKSIZE, endpoint=False)
         
-        # Handle frequency changes with phase continuity
-        if abs(self.target_frequency - self.last_frequency) > 0.1:
-            # Frequency changed significantly - maintain phase continuity
-            # The phase should continue smoothly from where it was
-            self.current_frequency = self.target_frequency
-            self.last_frequency = self.target_frequency
-        else:
-            # Small or no frequency change
-            self.current_frequency = self.target_frequency
+        # Use target values directly, no smoothing
+        self.current_frequency = self.target_frequency
+        self.current_amplitude = self.target_amplitude
+        self.current_phase_offset = self.target_phase_offset
+        self.current_position = self.target_position.copy()
+        
+        # Generate sine wave chunk with current parameters
+        instantaneous_phase = (
+            2 * np.pi * self.current_frequency * t + 
+            self.current_phase + 
+            self.current_phase_offset
+        )
+        
+        sound_chunk = self.current_amplitude * np.sin(instantaneous_phase)
+        
+        # Update phase for next chunk (maintain continuity)
+        self.current_phase += 2 * np.pi * self.current_frequency * chunk_duration
+        self.current_phase = self.current_phase % (2 * np.pi)
+        
+        # Store last chunk and last sample value
+        self.last_chunk = sound_chunk.copy()
+        self.last_chunk_end_value = sound_chunk[-1]
+        
+        return SoundMessage(sound=sound_chunk, position=self.current_position)
+
+    def _query_smart(self, tick: int) -> SoundMessage:
+        """Smart mode: smooth parameter transitions with phase continuity for frequency changes."""
+        chunk_duration = CHUNKSIZE / SAMPLING_RATE
+        t = np.linspace(0, chunk_duration, CHUNKSIZE, endpoint=False)
+        
+        # Update frequency, preserve phase continuity (no abrupt phase adjustments)
+        self.current_frequency = self.target_frequency
+        self.last_frequency = self.target_frequency
         
         # Smooth other parameters using exponential smoothing
         self.current_amplitude = (
@@ -192,7 +229,6 @@ class SO_PlaybackSine(SoundObjectBase):
         )
         
         # Generate sine wave chunk with smoothed parameters
-        # Use instantaneous frequency to avoid artifacts
         instantaneous_phase = (
             2 * np.pi * self.current_frequency * t + 
             self.current_phase + 
@@ -205,8 +241,9 @@ class SO_PlaybackSine(SoundObjectBase):
         self.current_phase += 2 * np.pi * self.current_frequency * chunk_duration
         self.current_phase = self.current_phase % (2 * np.pi)
         
-        # Store last chunk
+        # Store last chunk and last sample value
         self.last_chunk = sound_chunk.copy()
+        self.last_chunk_end_value = sound_chunk[-1]
         
         return SoundMessage(sound=sound_chunk, position=self.current_position)
 
@@ -215,16 +252,27 @@ class SO_PlaybackSine(SoundObjectBase):
         self.target_frequency = frequency
 
     def set_amplitude(self, amplitude: float):
-        """Update target amplitude (will be smoothed)."""
+        """Update target amplitude (will be smoothed in smart mode)."""
         self.target_amplitude = amplitude
 
     def set_phase_offset(self, phase_offset: float):
-        """Update target phase offset (will be smoothed)."""
+        """Update target phase offset (will be smoothed in smart mode)."""
         self.target_phase_offset = phase_offset
 
     def set_position(self, position: np.ndarray):
-        """Update target position (will be smoothed)."""
+        """Update target position (will be smoothed in smart mode)."""
         self.target_position = position.copy()
+
+    def set_mode(self, mode: str):
+        """Set operation mode: 'barebone' or 'smart'."""
+        if mode in ["barebone", "smart"]:
+            self.mode = mode
+        else:
+            raise ValueError("Mode must be 'barebone' or 'smart'")
+
+    def get_mode(self):
+        """Get current operation mode."""
+        return self.mode
 
     def get_position(self):
         """Get current smoothed position."""
@@ -235,7 +283,7 @@ class SO_PlaybackSine(SoundObjectBase):
         return self.last_chunk
     
     def set_smoothing_factor(self, factor: float):
-        """Adjust smoothing factor for all parameters (0.9-0.99)."""
+        """Adjust smoothing factor for all parameters (0.9-0.99). Only used in smart mode."""
         self.smoothing_factor = np.clip(factor, 0.0, 0.99)
         self.amplitude_smoothing = self.smoothing_factor
         self.position_smoothing = self.smoothing_factor
@@ -244,7 +292,7 @@ class SO_PlaybackSine(SoundObjectBase):
     def set_individual_smoothing(self, amplitude: float = None, 
                                 position: float = None, 
                                 phase_offset: float = None):
-        """Set individual smoothing factors for different parameters."""
+        """Set individual smoothing factors for different parameters. Only used in smart mode."""
         if amplitude is not None:
             self.amplitude_smoothing = np.clip(amplitude, 0.0, 0.99)
         if position is not None:

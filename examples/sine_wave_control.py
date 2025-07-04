@@ -10,7 +10,8 @@ import numpy as np
 import time
 import threading
 import gradio as gr
-from spatial_audio_ai.tools.spatializer import Spatializer, Scene, CHUNKSIZE, SAMPLING_RATE
+from spatial_audio_ai.tools.spatializer import Spatializer, Scene
+from spatial_audio_ai.config import CHUNKSIZE, SAMPLING_RATE
 from spatial_audio_ai.tools.sound_objects import SO_PlaybackSine
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
 import lunar_tools as lt
@@ -119,6 +120,11 @@ class SineWaveController:
         self.sine_object.set_smoothing_factor(smoothing)
         return f"Smoothing: {smoothing:.2f}"
     
+    def set_mode(self, mode):
+        """Set operation mode."""
+        self.sine_object.set_mode(mode)
+        return f"Mode: {mode.title()}"
+    
     def toggle_mute(self, is_muted):
         """Toggle mute on/off."""
         self.is_muted = is_muted
@@ -135,9 +141,14 @@ class SineWaveController:
         target_pos = self.sine_object.target_position
         
         mute_status = "🔇 Muted" if self.is_muted else "🔊 Unmuted"
+        mode_description = {
+            "smart": "Smart (seamless frequency changes)",
+            "barebone": "Barebone (immediate changes)"
+        }
         
         status = f"""Status: {'Running' if self.is_running else 'Stopped'}
 Mute: {mute_status}
+Mode: {mode_description.get(self.sine_object.get_mode(), self.sine_object.get_mode())}
 
 Target Values:
   Frequency: {self.sine_object.target_frequency:.1f} Hz
@@ -145,13 +156,13 @@ Target Values:
   Phase: {self.sine_object.target_phase_offset:.2f} rad
   Position: ({target_pos[0]:.1f}, {target_pos[1]:.1f})
 
-Current Values (Smoothed):
+Current Values ({'Smoothed' if self.sine_object.get_mode() == 'smart' else 'Direct'}):
   Frequency: {self.sine_object.current_frequency:.1f} Hz
   Amplitude: {self.sine_object.current_amplitude:.2f}
   Phase: {self.sine_object.current_phase_offset:.2f} rad
   Position: ({pos[0]:.1f}, {pos[1]:.1f})
 
-Smoothing: {self.sine_object.smoothing_factor:.2f}"""
+Smoothing: {self.sine_object.smoothing_factor:.2f} {'(active)' if self.sine_object.get_mode() == 'smart' else '(ignored in barebone mode)'}"""
         return status
 
 
@@ -163,7 +174,9 @@ def create_interface():
     with gr.Blocks(title="Real-time Sine Wave Control") as interface:
         gr.Markdown("# Real-time Sine Wave Spatial Audio Control")
         gr.Markdown(
-            "Control a real-time generated sine wave with spatial positioning"
+            "Control a real-time generated sine wave with spatial positioning. "
+            "Choose between **Smart mode** (seamless frequency changes with phase continuity) "
+            "or **Barebone mode** (immediate parameter changes without smoothing)."
         )
         
         with gr.Row():
@@ -175,6 +188,15 @@ def create_interface():
                 # Mute control
                 mute_checkbox = gr.Checkbox(
                     label="🔇 Mute", value=False
+                )
+                
+                # Mode control
+                gr.Markdown("### Operation Mode")
+                mode_radio = gr.Radio(
+                    choices=["smart", "barebone"],
+                    value="smart",
+                    label="Mode",
+                    info="Smart: seamless frequency changes with phase continuity. Barebone: immediate parameter changes."
                 )
                 
                 # Parameter controls
@@ -241,6 +263,9 @@ def create_interface():
                 smoothing_output = gr.Textbox(
                     label="Smoothing Status", value="Smoothing: 0.95"
                 )
+                mode_output = gr.Textbox(
+                    label="Mode Status", value="Mode: Smart"
+                )
                 mute_output = gr.Textbox(
                     label="Mute Status", value="🔊 Unmuted"
                 )
@@ -291,6 +316,12 @@ def create_interface():
             controller.update_smoothing,
             inputs=smoothing_slider,
             outputs=smoothing_output
+        )
+        
+        mode_radio.change(
+            controller.set_mode,
+            inputs=mode_radio,
+            outputs=mode_output
         )
         
         mute_checkbox.change(
