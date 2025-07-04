@@ -10,9 +10,8 @@ from spatial_audio_ai.generators.stable_audio import (
     StableAudioOpenSmall, SoundPoolGenerator, SpatialSoundPoolPlayer
 )
 from spatial_audio_ai.tools.tools import apply_fade_in_out, save_sound
-from spatial_audio_ai.tools.spatializer import (
-    SO_Playback, CHUNKSIZE, SAMPLING_RATE
-)
+from spatial_audio_ai.tools.spatializer import CHUNKSIZE, SAMPLING_RATE
+from spatial_audio_ai.tools.sound_objects import SO_Playback
 
 # Default prompts (hybrid/mixed)
 default_prompts = [
@@ -23,7 +22,7 @@ default_prompts = [
 "Distant bat echolocation clicks and wing flutters.",
 "Low, resonant drone with shifting loose stones.",
 "Sharp crystalline tones as stone taps crystal.",
-"Soft, pulsing rumble of the cavern “breathing.”",
+"Soft, pulsing rumble of the cavern \"breathing.\"",
 "Faint human whispers carried by echoing walls.",
 "Distant waterfall roar swelling then receding."
 ]

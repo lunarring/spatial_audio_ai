@@ -118,6 +118,8 @@ class Scene:
                 
 if __name__ == "__main__":
 
+    from spatial_audio_ai.tools.sound_objects import SO_Playback, SO_PlaybackCircularMove
+
     # pool based sound scape playback
     name_space = "ambient"
     p_inject = 0.05
