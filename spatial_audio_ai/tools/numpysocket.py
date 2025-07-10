@@ -16,6 +16,21 @@ class FastNumpySocket(socket.socket):
     MAGIC = b'NPSF'  # NumpySocket Fast
     HEADER_SIZE = 16  # Magic(4) + Shape(8) + DType(4)
     
+    def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, fileno=None):
+        super().__init__(family, type, proto, fileno)
+        
+        # Optimize for real-time audio streaming
+        if type == socket.SOCK_STREAM:  # TCP optimizations
+            # Disable Nagle's algorithm for low latency
+            self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            
+            # Set optimal buffer sizes for audio chunks (~13KB for 13 speakers * 1024 samples * 4 bytes)
+            self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)  # 64KB receive buffer
+            self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)  # 64KB send buffer
+            
+            # Enable keep-alive for connection stability
+            self.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
     def sendall(self, frame: np.ndarray) -> None:  # type: ignore[override]
         """Send numpy array using raw binary format for minimal latency."""
         # Ensure contiguous array for efficient transmission
@@ -62,14 +77,23 @@ class FastNumpySocket(socket.socket):
         return frame
 
     def _recv_exact(self, size: int) -> bytes:
-        """Receive exactly 'size' bytes from socket."""
-        data = bytearray()
-        while len(data) < size:
-            chunk = super().recv(size - len(data))
-            if not chunk:
+        """Receive exactly 'size' bytes from socket with optimized buffering."""
+        # Pre-allocate buffer for better performance
+        data = bytearray(size)
+        view = memoryview(data)
+        pos = 0
+        
+        while pos < size:
+            # Try to receive remaining bytes in larger chunks
+            remaining = size - pos
+            chunk_size = min(remaining, 65536)  # Match socket buffer size
+            
+            bytes_received = super().recv_into(view[pos:pos + chunk_size])
+            if not bytes_received:
                 break
-            data.extend(chunk)
-        return bytes(data)
+            pos += bytes_received
+            
+        return bytes(data[:pos])
 
     def _pack_header(self, frame: np.ndarray) -> bytes:
         """Pack array metadata into binary header."""

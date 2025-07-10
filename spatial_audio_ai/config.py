@@ -59,6 +59,13 @@ DEFAULT_REVERB_DECAY = 0.5
 DEFAULT_HOST = "10.40.49.47"
 DEFAULT_PORT = 9999
 
+# Audio latency settings
+# Lower values = lower latency but higher chance of dropouts
+# Higher values = more latency but more stable playback
+MAX_AUDIO_QUEUE_DEPTH = 3  # Target: ~65ms latency (3 * 21.3ms blocks)
+# For ultra-low latency: set to 2 (~43ms) - may cause dropouts
+# For stable playback: set to 4 (~85ms) - more stable but higher latency
+
 # Hardware settings
 N_SPEAKERS = 13
 

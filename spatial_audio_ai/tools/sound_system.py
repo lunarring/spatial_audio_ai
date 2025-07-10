@@ -9,7 +9,7 @@ import numpy as np
 import sounddevice as sd
 import argparse
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS, MAX_AUDIO_QUEUE_DEPTH
 
 sd.default.blocksize = BLOCKSIZE
 
@@ -107,6 +107,17 @@ class SoundSystem():
             return
             
         t0 = time_module.perf_counter()
+        
+        # Check queue depth and implement adaptive buffering
+        first_stream_key = next(iter(self.streams))
+        current_queue_len = len(self.streams[first_stream_key].queue)
+        MAX_QUEUE_DEPTH = MAX_AUDIO_QUEUE_DEPTH  # Target: keep latency under ~65ms (3 * 21.3ms)
+        
+        # If queue is too deep, drop this chunk to prevent latency buildup
+        if current_queue_len >= MAX_QUEUE_DEPTH:
+            print(f"[SERVER] DROPPING chunk - queue too deep ({current_queue_len} blocks)")
+            return
+        
         for speaker_id, speaker_audio in enumerate(data):
             speaker = list(self.streams.keys())[speaker_id]
             # Chunk into BLOCKSIZE
