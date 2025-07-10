@@ -219,16 +219,13 @@ class SineWaveMotionController:
         """Start the audio generation loop."""
         if self.is_running:
             return "Audio already running"
-        
-        # Start high-frequency motion updates first
-        self.start_motion_updates()
             
         self.is_running = True
         self.audio_thread = threading.Thread(
             target=self._audio_loop, daemon=True
         )
         self.audio_thread.start()
-        return "Audio started with high-frequency motion tracking"
+        return "Audio started with synchronized motion tracking"
     
     def stop_audio(self):
         """Stop the audio generation loop."""
@@ -239,8 +236,6 @@ class SineWaveMotionController:
         if self.audio_thread:
             self.audio_thread.join(timeout=1.0)
         
-        # Stop motion updates
-        self.stop_motion_updates()
         return "Audio and motion tracking stopped"
     
     def _audio_loop(self):
@@ -258,7 +253,10 @@ class SineWaveMotionController:
                 if not self.is_running:
                     break
                 
-                # Motion updates now handled by separate high-frequency thread
+                # Update motion parameters immediately before each audio chunk
+                # This eliminates the thread sync delay and ensures motion changes 
+                # are reflected in the very next audio chunk (max 21ms latency)
+                self.update_from_motion()
                     
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)

@@ -135,10 +135,17 @@ class SoundSystem():
             
         t0 = time_module.perf_counter()
         
-        # Check queue depth and implement adaptive buffering
+        # Check queue depth and implement adaptive buffering based on latency mode
         first_stream_key = next(iter(self.streams))
         current_queue_len = len(self.streams[first_stream_key].queue)
-        MAX_QUEUE_DEPTH = MAX_AUDIO_QUEUE_DEPTH  # Target: keep latency under ~65ms (3 * 21.3ms)
+        
+        # Adjust max queue depth based on latency mode
+        if AUDIO_LATENCY_MODE == 'ultra':
+            MAX_QUEUE_DEPTH = 2  # Ultra-low: ~43ms max latency (2 * 21.3ms)
+        elif AUDIO_LATENCY_MODE == 'low': 
+            MAX_QUEUE_DEPTH = 3  # Low: ~65ms max latency (3 * 21.3ms)
+        else:  # stable
+            MAX_QUEUE_DEPTH = 4  # Stable: ~85ms max latency (4 * 21.3ms)
         
         # If queue is too deep, drop this chunk to prevent latency buildup
         if current_queue_len >= MAX_QUEUE_DEPTH:
