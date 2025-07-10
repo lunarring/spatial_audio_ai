@@ -4,14 +4,16 @@ Real-time Sine Wave Motion Control with Gradio Interface
 
 This script provides a real-time controllable sine wave generator using the 
 SO_PlaybackSine class with a Gradio web interface for parameter control.
-The frequency is controlled by the height of OptiTrack rigid body "A".
+The frequency is controlled by the height of OptiTrack rigid body "C".
 """
 
 import numpy as np
 import time
 import threading
 import gradio as gr
-from spatial_audio_ai.tools.spatializer import Spatializer, Scene, CHUNKSIZE, SAMPLING_RATE
+from spatial_audio_ai.tools.spatializer import (
+    Spatializer, Scene, CHUNKSIZE, SAMPLING_RATE
+)
 from spatial_audio_ai.tools.sound_objects import SO_PlaybackSine
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
 import lunar_tools as lt
@@ -21,54 +23,51 @@ from optitrack_python.motive_receiver import MotiveReceiver
 
 class SineWaveMotionController:
     """Controller class for managing real-time sine wave generation 
-    with motion control for multiple rigid bodies."""
+    with motion control for rigid body C."""
     
     def __init__(self):
         self.spatializer = Spatializer()
         self.scene = Scene(self.spatializer)
         self.scene.volume = 0.3
         
-        # Create four sine wave objects for rigid bodies A, B, C, D
-        self.sine_objects = {}
-        self.rigid_bodies = {}
-        self.active_objects = {}  # Track which objects are active
+        # Create one sine wave object for rigid body C
+        self.sine_object = SO_PlaybackSine()
+        self.sine_object.set_frequency(250.0)  # Base frequency for C
+        self.sine_object.set_amplitude(0.5)
+        self.scene.register(self.sine_object)
         
-        rigid_body_names = ['A', 'B', 'C', 'D']
-        base_frequencies = [62.5, 125.0, 250.0, 500.0]  # Different base frequencies for each
-        
-        for i, name in enumerate(rigid_body_names):
-            sine_obj = SO_PlaybackSine()
-            sine_obj.set_frequency(base_frequencies[i])
-            sine_obj.set_amplitude(0.3)  # Lower amplitude since we have 4 objects
-            self.sine_objects[name] = sine_obj
-            self.scene.register(sine_obj)
-            self.active_objects[name] = True  # Start with all active
+        self.rigid_body = None
+        self.is_active = True
         
         self.sound_streamer = None
         self.is_running = False
         self.audio_thread = None
         self.is_muted = False
-        self.unmuted_amplitude = 0.3  # Lower for 4 objects
+        self.unmuted_amplitude = 0.5
         
         # OptiTrack setup
         self.motive = None
         self.setup_optitrack()
         
-        # Frequency mapping parameters (0m = 62.5Hz, 2m = 500Hz) - 3 octaves
+        # Frequency mapping parameters (0m = 62.5Hz, 2m = 500Hz)
         self.min_height = 0.0
         self.max_height = 2.0
-        self.min_frequency = 62.5  # Base frequency
-        self.max_frequency = 500.0  # 3 octaves higher (62.5 * 2^3)
+        self.min_frequency = 62.5
+        self.max_frequency = 500.0
         
-        # Position and tracking data for each rigid body
-        self.current_heights = {name: 0.0 for name in rigid_body_names}
-        self.current_positions = {name: np.array([0.0, 0.0]) for name in rigid_body_names}
-        self.position_scale = 1.0  # Scaling factor for position
+        # Position and tracking data
+        self.current_height = 0.0
+        self.current_position = np.array([0.0, 0.0])
+        self.position_scale = 1.0
+        
+        # Verbose mode for debugging
+        self.verbose_mode = True
+        self.last_verbose_time = 0
+        self.verbose_interval = 0.5  # Print every 0.5 seconds
         
     def setup_optitrack(self):
-        """Initialize OptiTrack connection and all rigid bodies."""
+        """Initialize OptiTrack connection and rigid body C."""
         try:
-            # Use the exact same setup as the working motive_receiver.py example
             print("Connecting to OptiTrack...")
             self.motive = MotiveReceiver(server_ip="10.40.49.47")
             
@@ -80,7 +79,8 @@ class SineWaveMotionController:
             for i in range(50):  # Try for 5 seconds
                 latest_data = self.motive.get_last()
                 if latest_data:
-                    print(f"✓ Connection established! Frame ID: {latest_data['frame_id']}")
+                    frame_id = latest_data['frame_id']
+                    print(f"✓ Connection established! Frame ID: {frame_id}")
                     break
                 time.sleep(0.1)
             else:
@@ -89,74 +89,94 @@ class SineWaveMotionController:
                 self.motive = None
                 return
             
-            # Create rigid bodies A, B, C, D
-            rigid_body_names = ['A', 'B', 'C', 'D']
-            for name in rigid_body_names:
-                self.rigid_bodies[name] = RigidBody(self.motive, name)
-            
-            print(f"OptiTrack connection established with rigid bodies: {', '.join(rigid_body_names)}")
+            # Create rigid body C
+            self.rigid_body = RigidBody(self.motive, "C")
+            print("OptiTrack connection established with rigid body C")
             
         except Exception as e:
             print(f"Failed to setup OptiTrack: {e}")
             self.motive = None
-            self.rigid_bodies = {}
+            self.rigid_body = None
+    
+    def print_verbose_status(self, position, frequency):
+        """Print verbose debugging information."""
+        current_time = time.time()
+        if current_time - self.last_verbose_time >= self.verbose_interval:
+            print("\n=== VERBOSE DEBUG (Rigid Body C) ===")
+            print(f"Raw Position: {position}")
+            print(f"X: {position[0]:.3f}, Y(height): {position[1]:.3f}, "
+                  f"Z: {position[2]:.3f}")
+            print(f"Current Height: {self.current_height:.3f}m")
+            print(f"Height Range: {self.min_height}m - {self.max_height}m")
+            print(f"Frequency Range: {self.min_frequency}Hz - "
+                  f"{self.max_frequency}Hz")
+            print(f"Calculated Frequency: {frequency:.2f}Hz")
+            scaled_pos = self.current_position * self.position_scale
+            print(f"Scaled Position (X,Z): {scaled_pos}")
+            print(f"Active: {self.is_active}, Muted: {self.is_muted}")
+            current_amp = self.sine_object.current_amplitude
+            print(f"Current Amplitude: {current_amp:.3f}")
+            print("=====================================\n")
+            self.last_verbose_time = current_time
     
     def update_from_motion(self):
-        """Update frequency and position based on rigid body motion for all active objects."""
-        if not self.rigid_bodies or self.motive is None:
+        """Update frequency and position based on rigid body C motion."""
+        if not self.rigid_body or self.motive is None:
             return
             
         try:
-            # Get latest data like the motive_receiver example
+            # Get latest data
             latest_data = self.motive.get_last()
             if not latest_data:
                 return
             
-            # Update all rigid bodies and their corresponding sine objects
-            for name, rigid_body in self.rigid_bodies.items():
-                if not self.active_objects[name]:
-                    # Set amplitude to 0 for inactive objects
-                    self.sine_objects[name].set_amplitude(0.0)
-                    continue
+            if not self.is_active:
+                self.sine_object.set_amplitude(0.0)
+                return
+            
+            try:
+                # Update rigid body and get position
+                self.rigid_body.update()
+                position = self.rigid_body.positions.get_last()
                 
-                try:
-                    # Update rigid body and get position
-                    rigid_body.update()
-                    position = rigid_body.positions.get_last()
+                if position is not None:
+                    # Extract coordinates: X, Y (height), Z
+                    x_pos = position[0]
+                    self.current_height = position[1]  # Y coordinate (height)
+                    z_pos = position[2]
                     
-                    if position is not None:
-                        # Extract coordinates: X, Y (height), Z
-                        x_pos = position[0]  # X coordinate
-                        self.current_heights[name] = position[1]  # Y coordinate (height)
-                        z_pos = position[2]  # Z coordinate
-                        
-                        # Update position (X and Z coordinates map to sound object X and Y)
-                        # Apply scaling factor to the position
-                        self.current_positions[name] = np.array([x_pos, z_pos])
-                        scaled_position = self.current_positions[name] * self.position_scale
-                        self.sine_objects[name].set_position(scaled_position)
-                        
-                        # Update frequency based on height (Y coordinate)
-                        # Clamp height to valid range
-                        height_clamped = np.clip(
-                            self.current_heights[name], self.min_height, self.max_height
-                        )
-                        
-                        # Exponential (octave-based) interpolation
-                        height_ratio = (
-                            (height_clamped - self.min_height) / 
-                            (self.max_height - self.min_height)
-                        )
-                        # Calculate frequency using exponential mapping (octaves)
-                        # frequency = min_freq * 2^(height_ratio * num_octaves)
-                        num_octaves = np.log2(self.max_frequency / self.min_frequency)
-                        frequency = self.min_frequency * (2 ** (height_ratio * num_octaves))
-                        
-                        # Update sine wave frequency
-                        self.sine_objects[name].set_frequency(frequency)
+                    # Update position (X and Z coordinates)
+                    self.current_position = np.array([x_pos, z_pos])
+                    scaled_position = self.current_position * self.position_scale
+                    self.sine_object.set_position(scaled_position)
+                    
+                    # Update frequency based on height (Y coordinate)
+                    height_clamped = np.clip(
+                        self.current_height, self.min_height, self.max_height
+                    )
+                    
+                    # Exponential (octave-based) interpolation
+                    height_ratio = (
+                        (height_clamped - self.min_height) / 
+                        (self.max_height - self.min_height)
+                    )
+                    # Calculate frequency using exponential mapping
+                    num_octaves = np.log2(
+                        self.max_frequency / self.min_frequency
+                    )
+                    frequency = self.min_frequency * (
+                        2 ** (height_ratio * num_octaves)
+                    )
+                    
+                    # Update sine wave frequency
+                    self.sine_object.set_frequency(frequency)
+                    
+                    # Print verbose debug info
+                    if self.verbose_mode:
+                        self.print_verbose_status(position, frequency)
                 
-                except Exception as e:
-                    print(f"Error updating rigid body {name}: {e}")
+            except Exception as e:
+                print(f"Error updating rigid body C: {e}")
                     
         except Exception as e:
             print(f"Error in motion update: {e}")
@@ -218,43 +238,35 @@ class SineWaveMotionController:
             self.is_running = False
             self.sound_streamer = None
     
-    def activate_rigid_body(self, name, is_active):
-        """Activate or deactivate a rigid body."""
-        self.active_objects[name] = is_active
+    def activate_rigid_body(self, is_active):
+        """Activate or deactivate rigid body C."""
+        self.is_active = is_active
         if not is_active:
-            # Mute the sine object when deactivated
-            self.sine_objects[name].set_amplitude(0.0)
+            self.sine_object.set_amplitude(0.0)
         elif not self.is_muted:
-            # Restore amplitude when activated (if not globally muted)
-            self.sine_objects[name].set_amplitude(self.unmuted_amplitude)
+            self.sine_object.set_amplitude(self.unmuted_amplitude)
         
         status = "Active" if is_active else "Inactive"
-        return f"Rigid Body {name}: {status}"
+        return f"Rigid Body C: {status}"
     
     def update_amplitude(self, amplitude):
-        """Update sine wave amplitude for all objects."""
-        self.unmuted_amplitude = amplitude  # Always store the unmuted value
-        if not self.is_muted:
-            # Apply to all active objects
-            for name, is_active in self.active_objects.items():
-                if is_active:
-                    self.sine_objects[name].set_amplitude(amplitude)
+        """Update sine wave amplitude."""
+        self.unmuted_amplitude = amplitude
+        if not self.is_muted and self.is_active:
+            self.sine_object.set_amplitude(amplitude)
         return f"Amplitude: {amplitude:.2f}"
     
     def update_phase(self, phase):
-        """Update sine wave phase offset for all objects."""
-        for sine_obj in self.sine_objects.values():
-            sine_obj.set_phase_offset(phase)
+        """Update sine wave phase offset."""
+        self.sine_object.set_phase_offset(phase)
         return f"Phase: {phase:.2f} rad"
     
     def update_position_scale(self, scale):
         """Update position scaling factor."""
         self.position_scale = scale
-        # Re-apply current positions with new scaling for all active objects
-        for name, is_active in self.active_objects.items():
-            if is_active and name in self.current_positions:
-                scaled_position = self.current_positions[name] * self.position_scale
-                self.sine_objects[name].set_position(scaled_position)
+        if self.is_active:
+            scaled_position = self.current_position * self.position_scale
+            self.sine_object.set_position(scaled_position)
         return f"Position Scale: {scale:.2f}"
     
     def update_min_frequency(self, min_freq):
@@ -268,73 +280,52 @@ class SineWaveMotionController:
         return f"Max Frequency: {max_freq:.1f} Hz"
     
     def update_smoothing(self, smoothing):
-        """Update smoothing factor for all objects."""
-        for sine_obj in self.sine_objects.values():
-            sine_obj.set_smoothing_factor(smoothing)
+        """Update smoothing factor."""
+        self.sine_object.set_smoothing_factor(smoothing)
         return f"Smoothing: {smoothing:.2f}"
     
     def toggle_mute(self, is_muted):
-        """Toggle mute on/off for all objects."""
+        """Toggle mute on/off."""
         self.is_muted = is_muted
         if is_muted:
-            # Mute all objects
-            for sine_obj in self.sine_objects.values():
-                sine_obj.set_amplitude(0.0)
+            self.sine_object.set_amplitude(0.0)
             return "🔇 Muted"
         else:
-            # Unmute only active objects
-            for name, is_active in self.active_objects.items():
-                if is_active:
-                    self.sine_objects[name].set_amplitude(self.unmuted_amplitude)
+            if self.is_active:
+                self.sine_object.set_amplitude(self.unmuted_amplitude)
             return "🔊 Unmuted"
+    
+    def toggle_verbose(self, verbose):
+        """Toggle verbose debug output."""
+        self.verbose_mode = verbose
+        status = "ON" if verbose else "OFF"
+        return f"Verbose Debug: {status}"
     
     def get_status(self):
         """Get current status information."""
         mute_status = "🔇 Muted" if self.is_muted else "🔊 Unmuted"
-        tracking_status = ("Connected" if self.rigid_bodies else "Disconnected")
+        tracking_status = "Connected" if self.rigid_body else "Disconnected"
         
         freq_range = f"{self.min_frequency:.0f} Hz - {self.max_frequency:.0f} Hz"
         
-        # Build active objects summary
-        active_list = [name for name, is_active in self.active_objects.items() if is_active]
-        active_summary = ", ".join(active_list) if active_list else "None"
-        
-        # Build detailed info for each rigid body
-        body_details = []
-        for name in ['A', 'B', 'C', 'D']:
-            is_active = self.active_objects[name]
-            if is_active and name in self.sine_objects:
-                pos = self.sine_objects[name].get_position()
-                current_freq = self.sine_objects[name].current_frequency
-                current_amp = self.sine_objects[name].current_amplitude
-                rb_pos = self.current_positions[name]
-                height = self.current_heights[name]
-                
-                body_details.append(
-                    f"  {name}: {'Active' if is_active else 'Inactive'} | "
-                    f"Pos: ({rb_pos[0]:.2f}, {height:.2f}, {rb_pos[1]:.2f}) | "
-                    f"Freq: {current_freq:.1f} Hz | Amp: {current_amp:.2f}"
-                )
-            else:
-                body_details.append(f"  {name}: Inactive")
-        
-        # Get smoothing from first object (they should all be the same)
-        smoothing = list(self.sine_objects.values())[0].smoothing_factor if self.sine_objects else 0.0
+        current_freq = self.sine_object.current_frequency
+        current_amp = self.sine_object.current_amplitude
+        smoothing = self.sine_object.smoothing_factor
         
         status = f"""Status: {'Running' if self.is_running else 'Stopped'}
 Mute: {mute_status}
 OptiTrack: {tracking_status}
+Verbose Debug: {'ON' if self.verbose_mode else 'OFF'}
 
-Active Rigid Bodies: {active_summary}
+Rigid Body C: {'Active' if self.is_active else 'Inactive'}
+Position: ({self.current_position[0]:.2f}, {self.current_height:.2f}, {self.current_position[1]:.2f})
 Position Scale Factor: {self.position_scale:.2f}
 Frequency Range: {freq_range}
 
-Global Settings:
-  Amplitude: {self.unmuted_amplitude:.2f} (stored)
-  Smoothing: {smoothing:.2f}
-
-Rigid Body Details:
-{chr(10).join(body_details)}"""
+Current Settings:
+  Frequency: {current_freq:.1f} Hz
+  Amplitude: {current_amp:.2f} (stored: {self.unmuted_amplitude:.2f})
+  Smoothing: {smoothing:.2f}"""
         return status
 
 
@@ -344,12 +335,12 @@ def create_interface():
     controller = SineWaveMotionController()
     
     with gr.Blocks(title="Real-time Sine Wave Motion Control") as interface:
-        gr.Markdown("# Real-time Multi-Body Sine Wave Motion Control")
+        gr.Markdown("# Real-time Sine Wave Motion Control (Rigid Body C)")
         gr.Markdown(
-            "Control up to 4 real-time generated sine waves with spatial positioning. "
-            "**Frequency is controlled by OptiTrack rigid body height** "
+            "Control a real-time generated sine wave with spatial positioning. "
+            "**Frequency is controlled by OptiTrack rigid body C height** "
             "(adjustable frequency range with exponential mapping). "
-            "**Position is controlled by X and Z coordinates** of each rigid body."
+            "**Position is controlled by X and Z coordinates**."
         )
         
         with gr.Row():
@@ -363,17 +354,20 @@ def create_interface():
                     label="🔇 Mute", value=False
                 )
                 
-                # Rigid body activation
-                gr.Markdown("### Rigid Body Activation")
-                rb_a_checkbox = gr.Checkbox(label="Rigid Body A", value=True)
-                rb_b_checkbox = gr.Checkbox(label="Rigid Body B", value=True)
-                rb_c_checkbox = gr.Checkbox(label="Rigid Body C", value=True)
-                rb_d_checkbox = gr.Checkbox(label="Rigid Body D", value=True)
+                # Debug control
+                verbose_checkbox = gr.Checkbox(
+                    label="🔍 Verbose Debug Output", value=True
+                )
                 
-                # Parameter controls (no frequency slider - motion controlled)
+                # Rigid body activation
+                gr.Markdown("### Rigid Body Control")
+                rb_c_checkbox = gr.Checkbox(label="Rigid Body C", value=True)
+                
+                # Parameter controls
                 gr.Markdown("### Audio Parameters")
                 gr.Markdown(
-                    "**Frequency:** Motion Controlled (Rigid Body Height - Exponential Mapping)"
+                    "**Frequency:** Motion Controlled "
+                    "(Rigid Body Height - Exponential Mapping)"
                 )
                 
                 # Frequency range controls
@@ -419,15 +413,17 @@ def create_interface():
                 status_output = gr.Textbox(
                     label="Status", 
                     value=controller.get_status(),
-                    lines=12
+                    lines=15
                 )
                 
                 # Parameter feedback
                 min_freq_output = gr.Textbox(
-                    label="Min Frequency Status", value="Min Frequency: 62.5 Hz"
+                    label="Min Frequency Status", 
+                    value="Min Frequency: 62.5 Hz"
                 )
                 max_freq_output = gr.Textbox(
-                    label="Max Frequency Status", value="Max Frequency: 500.0 Hz"
+                    label="Max Frequency Status", 
+                    value="Max Frequency: 500.0 Hz"
                 )
                 amp_output = gr.Textbox(
                     label="Amplitude Status", value="Amplitude: 0.50"
@@ -444,19 +440,13 @@ def create_interface():
                 mute_output = gr.Textbox(
                     label="Mute Status", value="🔊 Unmuted"
                 )
+                verbose_output = gr.Textbox(
+                    label="Verbose Status", value="Verbose Debug: ON"
+                )
                 
-                # Rigid body status outputs
-                rb_a_output = gr.Textbox(
-                    label="Rigid Body A Status", value="Rigid Body A: Active"
-                )
-                rb_b_output = gr.Textbox(
-                    label="Rigid Body B Status", value="Rigid Body B: Active"
-                )
+                # Rigid body status output
                 rb_c_output = gr.Textbox(
                     label="Rigid Body C Status", value="Rigid Body C: Active"
-                )
-                rb_d_output = gr.Textbox(
-                    label="Rigid Body D Status", value="Rigid Body D: Active"
                 )
         
         # Event handlers
@@ -513,29 +503,17 @@ def create_interface():
             outputs=mute_output
         )
         
-        # Rigid body activation handlers
-        rb_a_checkbox.change(
-            lambda x: controller.activate_rigid_body('A', x),
-            inputs=rb_a_checkbox,
-            outputs=rb_a_output
+        verbose_checkbox.change(
+            controller.toggle_verbose,
+            inputs=verbose_checkbox,
+            outputs=verbose_output
         )
         
-        rb_b_checkbox.change(
-            lambda x: controller.activate_rigid_body('B', x),
-            inputs=rb_b_checkbox,
-            outputs=rb_b_output
-        )
-        
+        # Rigid body activation handler
         rb_c_checkbox.change(
-            lambda x: controller.activate_rigid_body('C', x),
+            controller.activate_rigid_body,
             inputs=rb_c_checkbox,
             outputs=rb_c_output
-        )
-        
-        rb_d_checkbox.change(
-            lambda x: controller.activate_rigid_body('D', x),
-            inputs=rb_d_checkbox,
-            outputs=rb_d_output
         )
         
         # Manual status refresh button
@@ -549,18 +527,19 @@ def create_interface():
 
 
 if __name__ == "__main__":
-    print("Starting Real-time Multi-Body Sine Wave Motion Control Interface")
+    print("Starting Real-time Sine Wave Motion Control Interface")
     print(f"Audio settings: {SAMPLING_RATE} Hz, {CHUNKSIZE} samples per chunk")
-    print("Motion control by OptiTrack Rigid Bodies A, B, C, D:")
-    print("  Y-axis (height): 0m = 62.5 Hz, 2m = 500 Hz (3 octaves, exponential)")
-    print("  X-axis and Z-axis: Control spatial position of each sound object")
-    print("  Base frequencies: A=62.5Hz, B=125Hz, C=250Hz, D=500Hz")
-    print("Open your web browser to control activation and parameters")
+    print("Motion control by OptiTrack Rigid Body C:")
+    print("  Y-axis (height): 0m = 62.5 Hz, 2m = 500 Hz (exponential)")
+    print("  X-axis and Z-axis: Control spatial position")
+    print("  Base frequency: C=250Hz")
+    print("Open your web browser to control parameters")
+    print("Verbose debug output will print position/frequency info to console")
     
     interface = create_interface()
     interface.launch(
-        server_name=lt.get_local_ip(),  # Listen on specific IP address
+        server_name=lt.get_local_ip(),
         server_port=7860,
-        share=False,  # Set to True if you want a public link
+        share=False,
         show_api=False
     ) 
