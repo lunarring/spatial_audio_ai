@@ -66,6 +66,12 @@ MAX_AUDIO_QUEUE_DEPTH = 3  # Target: ~65ms latency (3 * 21.3ms blocks)
 # For ultra-low latency: set to 2 (~43ms) - may cause dropouts
 # For stable playback: set to 4 (~85ms) - more stable but higher latency
 
+# Audio driver latency mode
+# 'ultra' = Use 3ms WASAPI drivers + aggressive settings (~25ms total)  
+# 'low' = Use 3ms WASAPI drivers + safe settings (~35ms total)
+# 'stable' = Use any available drivers + conservative settings (~100ms+ total)
+AUDIO_LATENCY_MODE = 'ultra'  # Change to 'ultra' for lowest latency
+
 # Hardware settings
 N_SPEAKERS = 13
 

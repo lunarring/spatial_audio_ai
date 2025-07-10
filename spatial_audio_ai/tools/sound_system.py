@@ -9,7 +9,7 @@ import numpy as np
 import sounddevice as sd
 import argparse
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS, MAX_AUDIO_QUEUE_DEPTH
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS, MAX_AUDIO_QUEUE_DEPTH, AUDIO_LATENCY_MODE
 
 sd.default.blocksize = BLOCKSIZE
 
@@ -64,7 +64,34 @@ class StreamManager():
             outdata[:] = audio_to_play
 
     def start(self) -> None:
-        self.stream = sd.OutputStream(device=self.device, samplerate=self.samplerate, channels=2, callback=self.callback)
+        # Configure stream based on latency mode
+        stream_params = {
+            'device': self.device,
+            'samplerate': self.samplerate,
+            'channels': 2,
+            'callback': self.callback,
+            'blocksize': BLOCKSIZE
+        }
+        
+        if AUDIO_LATENCY_MODE == 'ultra':
+            # Ultra-low latency: most aggressive settings
+            stream_params.update({
+                'latency': 'low',
+                'clip_off': True,
+                'dither_off': True,
+                'never_drop_input': False,
+                'prime_output_buffers_using_stream_callback': True
+            })
+        elif AUDIO_LATENCY_MODE == 'low':
+            # Low latency: balanced settings
+            stream_params.update({
+                'latency': 'low',
+                'clip_off': True,
+                'dither_off': False  # Keep dithering for quality
+            })
+        # 'stable' mode uses default settings
+        
+        self.stream = sd.OutputStream(**stream_params)
         self.stream.start()
 
 
@@ -198,10 +225,27 @@ class SoundSystem():
 
     @staticmethod
     def __derive_virtual_soundcard_id(virtual_soundcard_suffix):
+        # Device selection based on latency mode
+        if AUDIO_LATENCY_MODE in ['ultra', 'low']:
+            # First try to find low-latency WASAPI drivers (3-10ms latency)
+            for device in sd.query_devices():
+                if ("DVS Transmit" in device["name"] and 
+                    "(Dante Virtual Soundcard)" in device["name"] and  # Use WASAPI drivers (low latency)
+                    device["default_low_output_latency"] < 0.02):  # Less than 20ms latency
+                    if virtual_soundcard_suffix == SoundSystem.__extract_device_channels(device["name"]):
+                        print(f"[{AUDIO_LATENCY_MODE.upper()} LATENCY] Using device {device['index']}: {device['name']} "
+                              f"(latency: {device['default_low_output_latency']*1000:.1f}ms)")
+                        return device["index"]
+        
+        # Fallback to any Dante device (for 'stable' mode or if low-latency not found)
         for device in sd.query_devices():
-            if " (Dante Virtu" in device["name"] and "DVS Transmit" in device["name"] and "(Dante Virtual Soundcard)" not in device["name"]:
+            if " (Dante Virtu" in device["name"] and "DVS Transmit" in device["name"]:
                 if virtual_soundcard_suffix == SoundSystem.__extract_device_channels(device["name"]):
+                    mode_label = "STABLE" if AUDIO_LATENCY_MODE == 'stable' else "FALLBACK"
+                    print(f"[{mode_label}] Using device {device['index']}: {device['name']} "
+                          f"(latency: {device['default_low_output_latency']*1000:.1f}ms)")
                     return device["index"]
+                    
         raise Exception(f"No valid Dante Virtual soundcard found with suffix {virtual_soundcard_suffix}")
 
     @staticmethod
