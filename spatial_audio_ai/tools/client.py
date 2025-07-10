@@ -84,12 +84,35 @@ class SoundNetworkStreamer:
                 try:
                     self.socket.sendall(data)
                     # print(f"Sent data with shape {data.shape} to the server.")
+                except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError) as e:
+                    print(f"Connection error during send: {e}")
+                    print("Attempting to reconnect...")
+                    self._reconnect()
                 except Exception as e:
                     print(f"Failed to send data: {e}")
             else:
                 print(f"Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
         else:
             print("Data must be a 2-dimensional numpy array")
+
+    def _reconnect(self):
+        """Attempt to reconnect the socket after a connection error."""
+        try:
+            if self.socket_connected:
+                self.socket.close()
+                self.socket_connected = False
+            
+            # Create new socket and reconnect
+            if not self.simulate:
+                self.socket = FastNumpySocket()
+            
+            self.socket.connect((self.host, self.port))
+            self.socket_connected = True
+            print(f"Successfully reconnected to {self.host}:{self.port}")
+            
+        except Exception as e:
+            print(f"Reconnection failed: {e}")
+            self.socket_connected = False
 
     def receive(self) -> np.ndarray:
         try:
@@ -99,6 +122,11 @@ class SoundNetworkStreamer:
             else:
                 print("No data received. The connection might be closed.")
             return response
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError) as e:
+            print(f"Connection error during receive: {e}")
+            print("Attempting to reconnect...")
+            self._reconnect()
+            return None
         except Exception as e:
             print(f"Failed to receive data: {e}")
             return None

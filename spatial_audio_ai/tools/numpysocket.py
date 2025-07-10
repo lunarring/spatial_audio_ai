@@ -24,24 +24,17 @@ class FastNumpySocket(socket.socket):
             # Disable Nagle's algorithm for low latency
             self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             
-            # Ultra-low latency optimizations
-            # Increase buffer sizes for fewer system calls
-            self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 131072)  # 128KB receive buffer
-            self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 131072)  # 128KB send buffer
+            # Reasonable buffer sizes for fewer system calls
+            self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)  # 64KB receive buffer  
+            self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)  # 64KB send buffer
             
             # Enable keep-alive for connection stability  
             self.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             
-            # Ultra-low latency TCP settings (where supported)
+            # Conservative low latency settings (where supported)
             try:
-                # Reduce TCP delayed ACK timer (Linux/Windows specific)
-                self.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 100)  # 100ms timeout
-            except (OSError, AttributeError):
-                pass  # Not supported on this platform
-                
-            try:
-                # Set low latency mode (Linux specific)
-                self.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)  # High priority
+                # Set higher priority (Linux specific) 
+                self.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 4)  # Medium-high priority
             except (OSError, AttributeError):
                 pass  # Not supported on this platform
 
@@ -63,7 +56,7 @@ class FastNumpySocket(socket.socket):
         logging.debug(f"Fast frame sent: shape={frame.shape}, dtype={frame.dtype}")
 
     def recv(self, bufsize: int = 8192) -> np.ndarray:  # type: ignore[override]
-        """Receive numpy array using raw binary format with optimized processing."""
+        """Receive numpy array using raw binary format with stable processing."""
         # Receive fixed-size header
         header_data = self._recv_exact(self.HEADER_SIZE)
         if len(header_data) == 0:
@@ -83,8 +76,8 @@ class FastNumpySocket(socket.socket):
         # Calculate data size
         data_size = shape0 * shape1 * dtype.itemsize
         
-        # Receive raw array data with pre-allocated buffer
-        array_data = self._recv_exact_fast(data_size)
+        # Receive raw array data using reliable chunked method
+        array_data = self._recv_exact(data_size)
         if len(array_data) != data_size:
             raise ValueError(f"Incomplete data received: {len(array_data)}/{data_size}")
             
@@ -96,7 +89,7 @@ class FastNumpySocket(socket.socket):
         return frame
 
     def _recv_exact(self, size: int) -> bytes:
-        """Receive exactly 'size' bytes from socket with optimized buffering."""
+        """Receive exactly 'size' bytes from socket with robust error handling."""
         # Pre-allocate buffer for better performance
         data = bytearray(size)
         view = memoryview(data)
@@ -107,22 +100,23 @@ class FastNumpySocket(socket.socket):
             remaining = size - pos
             chunk_size = min(remaining, 65536)  # Match socket buffer size
             
-            bytes_received = super().recv_into(view[pos:pos + chunk_size])
-            if not bytes_received:
-                break
-            pos += bytes_received
+            try:
+                bytes_received = super().recv_into(view[pos:pos + chunk_size])
+                if not bytes_received:
+                    # Connection closed by peer
+                    raise ConnectionResetError("Connection closed by peer during receive")
+                pos += bytes_received
+            except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+                # Re-raise connection errors for upper layers to handle
+                raise
+            except socket.timeout:
+                # Handle timeout gracefully
+                raise socket.timeout("Socket timeout during receive")
+            except Exception as e:
+                # Handle other socket errors
+                raise ConnectionError(f"Socket error during receive: {e}")
             
         return bytes(data[:pos])
-
-    def _recv_exact_fast(self, size: int) -> bytes:
-        """Ultra-fast receive with minimal memory allocation."""
-        if size <= 65536:  # Single receive for small data
-            data = super().recv(size)
-            if len(data) == size:
-                return data
-        
-        # Fall back to chunked receive for large data
-        return self._recv_exact(size)
 
     def _pack_header(self, frame: np.ndarray) -> bytes:
         """Pack array metadata into binary header with optimized encoding."""

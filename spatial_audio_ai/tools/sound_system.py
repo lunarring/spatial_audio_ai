@@ -139,13 +139,13 @@ class SoundSystem():
         first_stream_key = next(iter(self.streams))
         current_queue_len = len(self.streams[first_stream_key].queue)
         
-        # Adjust max queue depth based on latency mode
+        # Adjust max queue depth based on latency mode  
         if AUDIO_LATENCY_MODE == 'ultra':
-            MAX_QUEUE_DEPTH = 2  # Ultra-low: ~43ms max latency (2 * 21.3ms)
+            MAX_QUEUE_DEPTH = 3  # Ultra-low: ~65ms max latency (3 * 21.3ms) - safer than 2
         elif AUDIO_LATENCY_MODE == 'low': 
-            MAX_QUEUE_DEPTH = 3  # Low: ~65ms max latency (3 * 21.3ms)
+            MAX_QUEUE_DEPTH = 4  # Low: ~85ms max latency (4 * 21.3ms)
         else:  # stable
-            MAX_QUEUE_DEPTH = 4  # Stable: ~85ms max latency (4 * 21.3ms)
+            MAX_QUEUE_DEPTH = 5  # Stable: ~107ms max latency (5 * 21.3ms)
         
         # If queue is too deep, drop this chunk to prevent latency buildup
         if current_queue_len >= MAX_QUEUE_DEPTH:
