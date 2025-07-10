@@ -38,7 +38,7 @@ def set_sample_rate(rate: Literal["44100", "48000"]) -> None:
     """
     if rate != "48000":
         print(f"Warning: Requested {rate}Hz but system always uses 48KHz")
-    # Don't actually change anything - always use 48KHz
+    # Don't actually change any thing - always use 48KHz
 
 
 # Main configuration constants
