@@ -46,12 +46,19 @@ class StreamManager():
             remaining_samples_2 = len(audio) - self.index
             outdata[:] = audio_to_play
             
-            # Only log occasionally when processing audio (every 50 callbacks ≈ 1 second)
-            if not hasattr(self, '_callback_count'):
+            # Only log when queue length changes significantly (to avoid spam)
+            if not hasattr(self, '_last_logged_queue_len'):
+                self._last_logged_queue_len = -1
                 self._callback_count = 0
+            
             self._callback_count += 1
-            if self._callback_count % 50 == 0:
-                print(f"[AUDIO CB] Processing audio, queue length: {len(self.queue)} blocks")
+            current_queue_len = len(self.queue)
+            
+            # Log only when queue length changes by 2+ blocks OR every 500 callbacks (≈10 seconds)
+            queue_change = abs(current_queue_len - self._last_logged_queue_len)
+            if queue_change >= 2 or self._callback_count % 500 == 0:
+                print(f"[AUDIO CB] Queue: {current_queue_len} blocks")
+                self._last_logged_queue_len = current_queue_len
         else:
             audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
             outdata[:] = audio_to_play
@@ -110,7 +117,19 @@ class SoundSystem():
         self.logger.info("Playing")
         t1 = time_module.perf_counter()
         buf_secs = self.get_current_buffer_time()
-        print(f"[SERVER] enqueue: {t1-t0:.3f}s, total buffered: {buf_secs:.3f}s")
+        
+        # Only log occasionally to avoid spam
+        if not hasattr(self, '_enqueue_counter'):
+            self._enqueue_counter = 0
+            self._last_logged_buffer = -1
+        
+        self._enqueue_counter += 1
+        
+        # Log only when buffer time changes significantly OR every 100 enqueues (≈2 seconds)
+        buffer_change = abs(buf_secs - self._last_logged_buffer)
+        if buffer_change > 0.05 or self._enqueue_counter % 100 == 0:  # 50ms buffer change or every 2s
+            print(f"[SERVER] Buffer: {buf_secs:.3f}s (enqueue: {t1-t0:.3f}s)")
+            self._last_logged_buffer = buf_secs
 
     def get_current_buffer_time(self) -> int:
         "Return the length of the queue of the first stream."

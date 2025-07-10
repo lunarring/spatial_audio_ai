@@ -14,6 +14,7 @@ logger.setLevel(logging.INFO)
 
 def handle_client(conn, addr, sound_system, verbose=False):
     """Handle a single client connection"""
+    chunk_counter = 0
     try:
         logger.info(f"Connected: {addr}")
         if verbose:
@@ -24,7 +25,11 @@ def handle_client(conn, addr, sound_system, verbose=False):
                 t0 = time_module.perf_counter()
                 sound_array = conn.recv()
                 t1 = time_module.perf_counter()
-                print(f"[SERVER] recv+unpack: {t1-t0:.3f}s")
+                
+                # Only log timing occasionally (every 50 chunks ≈ 1 second)
+                chunk_counter += 1
+                if chunk_counter % 50 == 0:
+                    print(f"[SERVER] recv+unpack: {t1-t0:.3f}s (chunk {chunk_counter})")
                 
                 # Check for disconnection or empty message
                 if sound_array is None or not sound_array.size:
