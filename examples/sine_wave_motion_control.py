@@ -42,6 +42,8 @@ class SineWaveMotionController:
         self.sound_streamer = None
         self.is_running = False
         self.audio_thread = None
+        self.motion_thread = None
+        self.motion_update_active = False
         self.is_muted = False
         self.unmuted_amplitude = 0.5
         
@@ -180,18 +182,53 @@ class SineWaveMotionController:
                     
         except Exception as e:
             print(f"Error in motion update: {e}")
+    
+    def _motion_update_loop(self):
+        """Separate high-frequency motion update loop."""
+        try:
+            while self.motion_update_active:
+                self.update_from_motion()
+                # Run at ~100Hz for responsive motion tracking
+                time.sleep(0.01)
+        except Exception as e:
+            print(f"Motion update loop error: {e}")
+    
+    def start_motion_updates(self):
+        """Start the high-frequency motion update loop."""
+        if self.motion_update_active:
+            return
+        
+        self.motion_update_active = True
+        self.motion_thread = threading.Thread(
+            target=self._motion_update_loop, daemon=True
+        )
+        self.motion_thread.start()
+        print("High-frequency motion updates started (100Hz)")
+    
+    def stop_motion_updates(self):
+        """Stop the motion update loop."""
+        if not self.motion_update_active:
+            return
+        
+        self.motion_update_active = False
+        if self.motion_thread:
+            self.motion_thread.join(timeout=1.0)
+        print("Motion updates stopped")
         
     def start_audio(self):
         """Start the audio generation loop."""
         if self.is_running:
             return "Audio already running"
+        
+        # Start high-frequency motion updates first
+        self.start_motion_updates()
             
         self.is_running = True
         self.audio_thread = threading.Thread(
             target=self._audio_loop, daemon=True
         )
         self.audio_thread.start()
-        return "Audio started"
+        return "Audio started with high-frequency motion tracking"
     
     def stop_audio(self):
         """Stop the audio generation loop."""
@@ -201,7 +238,10 @@ class SineWaveMotionController:
         self.is_running = False
         if self.audio_thread:
             self.audio_thread.join(timeout=1.0)
-        return "Audio stopped"
+        
+        # Stop motion updates
+        self.stop_motion_updates()
+        return "Audio and motion tracking stopped"
     
     def _audio_loop(self):
         """Main audio generation loop running in separate thread."""
@@ -218,8 +258,7 @@ class SineWaveMotionController:
                 if not self.is_running:
                     break
                 
-                # Update frequency and position from motion data
-                self.update_from_motion()
+                # Motion updates now handled by separate high-frequency thread
                     
                 # Clip audio to prevent overflow
                 chunk = np.clip(chunk, -1, 1)
