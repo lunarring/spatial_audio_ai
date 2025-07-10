@@ -5,7 +5,7 @@ from typing import List, Tuple
 from abc import ABC, abstractmethod
 import soundfile as sf
 import time
-from spatial_audio_ai.tools.numpysocket import NumpySocket
+from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 import os
 import random
 from spatial_audio_ai.tools.client import SoundNetworkStreamer

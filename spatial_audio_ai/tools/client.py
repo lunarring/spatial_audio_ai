@@ -5,7 +5,7 @@ from typing import List, Tuple
 from abc import ABC, abstractmethod
 import soundfile as sf
 import time
-from spatial_audio_ai.tools.numpysocket import NumpySocket
+from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 import os
 import random
 from collections import deque
@@ -55,7 +55,7 @@ class SoundNetworkStreamer:
         if self.simulate:
             self.socket = SimulatedSocket()
         else:
-            self.socket = NumpySocket()
+            self.socket = FastNumpySocket()
         self.socket_connected = False
         self.lock = threading.Lock()  # To ensure thread safety if needed
         self.__enter__()

@@ -1,6 +1,6 @@
 import logging
 from enum import IntEnum
-import time
+import time as time_module
 from collections import deque
 from typing import Dict, Tuple
 import asyncio
@@ -37,7 +37,6 @@ class StreamManager():
         self.queue_index = 0
 
     def callback(self, outdata : np.array, frames : int, time : float, status : sd.CallbackFlags) -> None:
-        t0 = time.perf_counter()
         if status:
             print(f"Status: {status}")
         
@@ -46,11 +45,16 @@ class StreamManager():
             audio_to_play[:, 1 - self.stereo_channel_idx] = audio
             remaining_samples_2 = len(audio) - self.index
             outdata[:] = audio_to_play
+            
+            # Only log occasionally when processing audio (every 50 callbacks ≈ 1 second)
+            if not hasattr(self, '_callback_count'):
+                self._callback_count = 0
+            self._callback_count += 1
+            if self._callback_count % 50 == 0:
+                print(f"[AUDIO CB] Processing audio, queue length: {len(self.queue)} blocks")
         else:
             audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
             outdata[:] = audio_to_play
-        t1 = time.perf_counter()
-        print(f"[AUDIO CB] callback time: {t1-t0:.3f}s, queue length: {len(self.queue)} blocks")
 
     def start(self) -> None:
         self.stream = sd.OutputStream(device=self.device, samplerate=self.samplerate, channels=2, callback=self.callback)
@@ -95,7 +99,7 @@ class SoundSystem():
             self.logger.info("Mock mode: audio would be played")
             return
             
-        t0 = time.perf_counter()
+        t0 = time_module.perf_counter()
         for speaker_id, speaker_audio in enumerate(data):
             speaker = list(self.streams.keys())[speaker_id]
             # Chunk into BLOCKSIZE
@@ -104,7 +108,7 @@ class SoundSystem():
                 self.streams[speaker].queue.append(chunk)
 
         self.logger.info("Playing")
-        t1 = time.perf_counter()
+        t1 = time_module.perf_counter()
         buf_secs = self.get_current_buffer_time()
         print(f"[SERVER] enqueue: {t1-t0:.3f}s, total buffered: {buf_secs:.3f}s")
 
@@ -209,6 +213,6 @@ if __name__ == "__main__":
     
     print(f'Playing random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
     sound_sys.add_to_playback_queue(sound_file)
-    time.sleep(1.1 * actual_duration)
+    time_module.sleep(1.1 * actual_duration)
 
 

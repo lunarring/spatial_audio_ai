@@ -1,10 +1,10 @@
 #!/usr/bin/python3
 import logging
-import time
+import time as time_module
 import socket
 import sys
 import numpy as np
-from spatial_audio_ai.tools.numpysocket import NumpySocket
+from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
 # import threading # No longer needed for single client
 
@@ -21,9 +21,9 @@ def handle_client(conn, addr, sound_system, verbose=False):
         
         while True:
             try:
-                t0 = time.perf_counter()
+                t0 = time_module.perf_counter()
                 sound_array = conn.recv()
-                t1 = time.perf_counter()
+                t1 = time_module.perf_counter()
                 print(f"[SERVER] recv+unpack: {t1-t0:.3f}s")
                 
                 # Check for disconnection or empty message
@@ -77,7 +77,7 @@ class SoundServer:
         # Only initialize SoundSystem when server is started
         sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode)
         
-        with NumpySocket() as s:
+        with FastNumpySocket() as s:
             s.bind((self.host, self.port))
             s.listen(1)  # Only allow one connection in the backlog
             s.settimeout(1.0)  # Timeout for s.accept() to allow KeyboardInterrupt
@@ -105,7 +105,7 @@ class SoundServer:
                         # Decide if server should continue or stop on such errors
                         # For now, let's print and continue listening, but could also break
                         print(f"An error occurred: {e}. Server continues listening.")
-                        time.sleep(1) # Avoid fast error loop
+                        time_module.sleep(1) # Avoid fast error loop
                         
             except KeyboardInterrupt:
                 print("\nServer shutting down gracefully...")
@@ -115,7 +115,7 @@ class SoundServer:
                 logger.critical(f"Critical server error: {e}", exc_info=True)
             finally:
                 print("Cleaning up resources...")
-                # s.close() is handled by 'with NumpySocket() as s:'
+                # s.close() is handled by 'with FastNumpySocket() as s:'
                 print("Server stopped.")
                 sys.exit(0)
 
