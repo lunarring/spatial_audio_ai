@@ -62,9 +62,9 @@ DEFAULT_PORT = 9999
 # Audio latency settings
 # Lower values = lower latency but higher chance of dropouts
 # Higher values = more latency but more stable playback
-MAX_AUDIO_QUEUE_DEPTH = 3  # Target: ~65ms latency (3 * 21.3ms blocks)
-# For ultra-low latency: set to 2 (~43ms) - may cause dropouts
-# For stable playback: set to 4 (~85ms) - more stable but higher latency
+MAX_AUDIO_QUEUE_DEPTH = 6  # Target: ~128ms latency (6 * 21.3ms blocks) - balanced for WiFi
+# For ultra-low latency: set to 3 (~65ms) - may cause dropouts on WiFi
+# For stable WiFi playback: set to 6-8 (~128-170ms) - good balance of stability and latency
 
 # Audio driver latency mode
 # 'ultra' = Use 3ms WASAPI drivers + aggressive settings (~25ms total)  

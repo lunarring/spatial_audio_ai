@@ -40,11 +40,24 @@ class StreamManager():
         if status:
             print(f"Status: {status}")
         
+        # Always create output buffer with the exact required frame size
+        audio_to_play = np.zeros((frames, 2), dtype=np.float32)
+        
         if len(self.queue) > 0:
-            audio_to_play = np.zeros((len(audio := self.queue.popleft()), 2), dtype=np.float32)
-            audio_to_play[:, 1 - self.stereo_channel_idx] = audio
-            remaining_samples_2 = len(audio) - self.index
-            outdata[:] = audio_to_play
+            audio_chunk = self.queue.popleft()
+            
+            # Ensure chunk is the expected size (BLOCKSIZE)
+            if len(audio_chunk) == frames:
+                # Perfect match - use the chunk directly
+                audio_to_play[:, 1 - self.stereo_channel_idx] = audio_chunk
+            elif len(audio_chunk) < frames:
+                # Chunk is smaller - pad with zeros
+                audio_to_play[:len(audio_chunk), 1 - self.stereo_channel_idx] = audio_chunk
+                print(f"[AUDIO WARNING] Undersized chunk: {len(audio_chunk)} < {frames}")
+            else:
+                # Chunk is larger - truncate (shouldn't happen with proper BLOCKSIZE)
+                audio_to_play[:, 1 - self.stereo_channel_idx] = audio_chunk[:frames]
+                print(f"[AUDIO WARNING] Oversized chunk: {len(audio_chunk)} > {frames}")
             
             # Only log when queue length changes significantly (to avoid spam)
             if not hasattr(self, '_last_logged_queue_len'):
@@ -59,9 +72,10 @@ class StreamManager():
             if queue_change >= 2 or self._callback_count % 500 == 0:
                 print(f"[AUDIO CB] Queue: {current_queue_len} blocks")
                 self._last_logged_queue_len = current_queue_len
-        else:
-            audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
-            outdata[:] = audio_to_play
+        # If no audio in queue, audio_to_play remains zeros (silence)
+        
+        # Output the properly sized audio buffer
+        outdata[:] = audio_to_play
 
     def start(self) -> None:
         # Configure stream based on latency mode

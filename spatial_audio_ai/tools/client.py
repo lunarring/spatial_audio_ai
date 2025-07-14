@@ -124,8 +124,9 @@ class BlackHoleStereoRelayer:
                  chunk_size=None,
                  device_name="BlackHole 64ch",
                  max_queue_size=1000,
-                 stream_volume=0.7,
-                 mapping_scheme='alternating'):
+                 stream_volume=0.3,
+                 mapping_scheme='alternating',
+                 buffer_seconds=2.0):
         """
         Initializes the BlackHoleStereoRelayer.
 
@@ -137,6 +138,7 @@ class BlackHoleStereoRelayer:
         - max_queue_size (int): Maximum number of chunks to store in the deque.
         - stream_volume (float): Volume scaling factor for the audio stream.
         - mapping_scheme (str): Playback mapping scheme ('stereo' or 'alternating').
+        - buffer_seconds (float): Target buffer time for stability (seconds).
         """
         # Configure logging
         logging.basicConfig(level=logging.WARNING,
@@ -150,16 +152,17 @@ class BlackHoleStereoRelayer:
         
         # Calculate optimal chunk size based on sample rate if not provided
         if chunk_size is None:
-            # Default to 10x BLOCKSIZE for 48KHz (optimal for real-time streaming)
-            chunk_size = BLOCKSIZE * 10
+            # Use same chunk size as server for optimal compatibility and minimal latency
+            chunk_size = BLOCKSIZE
         self.chunk_size = chunk_size
         self.device_name = device_name
         self.max_queue_size = max_queue_size
         self.stream_volume = stream_volume
         self.mapping_scheme = mapping_scheme.lower()
+        self.buffer_seconds = buffer_seconds
         
-        # Individual channel volumes (13 channels)
-        self.channel_volumes = [1.0] * 13
+        # Individual channel volumes (13 channels) - start with lower volumes to prevent clipping
+        self.channel_volumes = [0.8] * 13
         
         # Solo states for each channel (13 channels)
         self.channel_solo = [False] * 13
@@ -313,62 +316,53 @@ class BlackHoleStereoRelayer:
 
     def start(self):
         """
-        Starts the recording thread and begins processing audio chunks.
+        Starts the recording thread and begins processing audio chunks with simple buffering.
         """
         self._recording_thread = threading.Thread(target=self._record_audio, daemon=True)
         self._recording_thread.start()
 
-        # Pre-buffer chunks for smooth playback
-        min_buffer_chunks = 2  # Keep at least 2 chunks ahead
+        # Simple buffer parameters
         chunk_duration = self.chunk_size / self.sample_rate
+        buffer_chunks = int(self.buffer_seconds / chunk_duration)
+        
+        print(f"BlackHole simple buffering:")
+        print(f"  Buffer target: {buffer_chunks} chunks ({self.buffer_seconds:.1f}s)")
+        print(f"  Chunk duration: {chunk_duration*1000:.1f}ms")
         
         try:
-            # Wait for initial buffer to fill
-            logging.info(f"Building initial buffer ({min_buffer_chunks} chunks)...")
-            while len(self.audio_deque) < min_buffer_chunks and not self._stop_event.is_set():
+            # Build initial buffer
+            print(f"Building initial buffer...")
+            while len(self.audio_deque) < buffer_chunks // 2 and not self._stop_event.is_set():
                 time.sleep(0.01)
             
             if self._stop_event.is_set():
                 return
                 
-            logging.info("Initial buffer ready, starting stream...")
-            start_time = time.perf_counter()
-            chunk_counter = 0
-
+            print("Starting streaming...")
+            
+            # Simple streaming loop - just keep the server fed
             while not self._stop_event.is_set():
-                # Maintain buffer - only send if we have enough chunks ahead
-                if len(self.audio_deque) >= min_buffer_chunks:
+                if len(self.audio_deque) > 0:
                     latest_chunk = self.audio_deque.popleft()
 
                     if not isinstance(latest_chunk, np.ndarray):
                         latest_chunk = np.array(latest_chunk)
 
-                    processed_chunk = latest_chunk.T * self.stream_volume
-
+                    # Don't transpose - keep original format and reduce volume to prevent clipping
+                    processed_chunk = latest_chunk * (self.stream_volume * 0.5)  # Reduce volume to prevent clipping
                     self.sound_streamer.send(processed_chunk)
-                    chunk_counter += 1
-
-                    logging.debug(f"Sent chunk {chunk_counter}, buffer size: {len(self.audio_deque)}")
                     
-                    # Schedule next chunk send time (similar to playback.py)
-                    next_time = start_time + chunk_counter * chunk_duration
-                    sleep_time = next_time - time.perf_counter()
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
-                    elif sleep_time < -chunk_duration:
-                        # If we're more than one chunk behind, reset timing
-                        start_time = time.perf_counter() - chunk_counter * chunk_duration
-                        logging.warning("Timing reset due to large delay")
+                    # Simple timing - just match the chunk rate
+                    time.sleep(chunk_duration * 0.95)  # Slightly faster to keep buffer full
                 else:
-                    # Buffer underrun - wait for more data
-                    logging.debug(f"Buffer underrun, waiting... (buffer size: {len(self.audio_deque)})")
-                    time.sleep(0.005)  # Shorter sleep when waiting for buffer
+                    # No audio available - wait a bit
+                    time.sleep(0.005)
                     
         except KeyboardInterrupt:
-            logging.info("\nRecording stopped by user.")
+            print("\nBlackHole streaming stopped by user.")
             self.stop()
         except Exception as e:
-            logging.error(f"An error occurred in the main loop: {e}")
+            print(f"Error in BlackHole streaming: {e}")
             self.stop()
 
     def stop(self):
@@ -490,7 +484,7 @@ def create_gradio_interface(relayer):
             with gr.Column():
                 gr.Markdown("## Master Controls")
                 master_volume = gr.Slider(
-                    minimum=0.0, maximum=2.0, value=0.7, step=0.01,
+                    minimum=0.0, maximum=2.0, value=0.2, step=0.01,
                     label="Master Volume"
                 )
                 mapping_scheme = gr.Radio(
@@ -513,7 +507,7 @@ def create_gradio_interface(relayer):
             for i in range(5):
                 with gr.Column(min_width=150):
                     slider = gr.Slider(
-                        minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                        minimum=0.0, maximum=2.0, value=0.8, step=0.01,
                         label=f"Ch {i+1}"
                     )
                     ch_sliders[i] = slider  # Store in correct index
@@ -567,7 +561,7 @@ def create_gradio_interface(relayer):
             for visual_pos, ch_num in enumerate([11, 10, 9, 8, 7]):
                 with gr.Column(min_width=150):
                     slider = gr.Slider(
-                        minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                        minimum=0.0, maximum=2.0, value=0.8, step=0.01,
                         label=f"Ch {ch_num}"
                     )
                     ch_sliders[ch_num - 1] = slider  # Store in correct index (ch_num - 1)
@@ -657,6 +651,7 @@ def main():
     # BlackHole command
     blackhole_parser = subparsers.add_parser('blackhole', help='Start BlackHole audio relayer with Gradio interface')
     blackhole_parser.add_argument('--mapping', default='alternating', choices=['alternating', 'stereo', 'mono'], help='Mapping scheme (default: alternating)')
+    blackhole_parser.add_argument('--buffer', type=float, default=2.0, help='Buffer size in seconds for WiFi stability (default: 2.0)')
     
     args = parser.parse_args()
     
@@ -664,6 +659,7 @@ def main():
     if args.command is None:
         args.command = 'blackhole'
         args.mapping = 'alternating'
+        args.buffer = 2.0
     
     if args.command == 'test':
         # Validate speaker number
@@ -700,8 +696,12 @@ def main():
         print("Available audio devices:")
         print(sd.query_devices())
 
-        # Create BlackHole relayer
-        relayer = BlackHoleStereoRelayer(mapping_scheme=args.mapping)
+        # Create BlackHole relayer with buffering
+        print(f"Starting BlackHole with {args.buffer}s buffer")
+        relayer = BlackHoleStereoRelayer(
+            mapping_scheme=args.mapping,
+            buffer_seconds=args.buffer
+        )
         
         # Create and launch Gradio interface
         interface = create_gradio_interface(relayer)
@@ -726,7 +726,10 @@ if __name__ == "__main_x_":
 
     # Example usage:
     mapping_scheme = 'alternating'
-    relayer = BlackHoleStereoRelayer(mapping_scheme=mapping_scheme)
+    relayer = BlackHoleStereoRelayer(
+        mapping_scheme=mapping_scheme,
+        buffer_seconds=2.0
+    )
     
     # Create and launch Gradio interface
     interface = create_gradio_interface(relayer)
