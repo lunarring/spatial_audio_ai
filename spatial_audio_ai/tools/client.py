@@ -16,7 +16,7 @@ import gradio as gr
 import json
 import uuid
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, ALLOWED_PROFILES
 
 try:
     import lunar_tools as lt
@@ -29,8 +29,6 @@ CHUNKSIZE = BLOCKSIZE * 4
 
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
-# Allowed queue-depth profiles (clearer names)
-ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer', 'stable'}
 
 sd.default.blocksize = BLOCKSIZE
 

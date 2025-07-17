@@ -7,7 +7,7 @@ import numpy as np
 import struct  # For parsing custom UDP headers
 import threading
 import json
-from spatial_audio_ai.config import UDP_BUFFER_DEPTH
+from spatial_audio_ai.config import UDP_BUFFER_DEPTH, get_profile_queue_depth, ALLOWED_PROFILES
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
 
@@ -121,11 +121,11 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         profile = msg['control'].get('profile', 'stable')
                         client_id = msg.get('client_id', 'unknown')
                         
-                        # Map stable profile to higher buffer depth for reliability
-                        depth_map = {
-                            'stable': UDP_BUFFER_DEPTH * 12  # High buffering for ZMQ stability
-                        }
-                        depth = depth_map.get(profile, UDP_BUFFER_DEPTH * 8)
+                        # Validate profile and get depth from centralized config
+                        if profile not in ALLOWED_PROFILES:
+                            profile = 'stable'  # Fallback to stable for invalid profiles
+                        
+                        depth = get_profile_queue_depth(profile, protocol='zmq')
                         sound_system.set_max_queue_depth(depth)
                         
                         log_msg = f"[ZMQ][PROFILE] ✅ client={client_id} profile={profile} -> queue_depth={depth}"
@@ -280,15 +280,12 @@ class SoundServer:
                             if addr not in clients:
                                 clients.add(addr)
                                 last_seq_map[addr] = None
-                            # Map profile names to queue depths (clearer names)
-                            depth_map = {
-                                'ultra_low_latency': 2,
-                                'low_latency': 4,
-                                'balanced': UDP_BUFFER_DEPTH * 2,
-                                'high_buffer': UDP_BUFFER_DEPTH * 4,
-                                'super_buffer': UDP_BUFFER_DEPTH * 8
-                            }
-                            depth = depth_map.get(profile, UDP_BUFFER_DEPTH)
+                            
+                            # Validate profile and get depth from centralized config
+                            if profile not in ALLOWED_PROFILES:
+                                profile = 'balanced'  # Fallback to balanced for invalid UDP profiles
+                            
+                            depth = get_profile_queue_depth(profile, protocol='udp')
                             sound_system.set_max_queue_depth(depth)
                             msg = f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}"
                             logger.info(msg)
