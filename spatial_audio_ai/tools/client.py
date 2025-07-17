@@ -227,7 +227,9 @@ class SoundNetworkStreamerZMQ:
                                 ack_info = msg['control_ack']
                                 if msg.get('client_id') == self.client_id:
                                     print(f"[ZMQ][CLIENT] ✅ Received acknowledgment from server!")
-                                    print(f"[ZMQ][CLIENT] ✅ Profile: {ack_info.get('profile')}, Queue depth: {ack_info.get('queue_depth')}")
+                                    queue_depth = ack_info.get('queue_depth', 'unknown')
+                                    min_buffer = ack_info.get('min_buffer_blocks', 'unknown')
+                                    print(f"[ZMQ][CLIENT] ✅ Profile: {ack_info.get('profile')}, Queue depth: {queue_depth}, Min buffer: {min_buffer}")
                                     ack_received = True
                                     break
                         if ack_received:

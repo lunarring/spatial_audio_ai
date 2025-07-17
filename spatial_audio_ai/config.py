@@ -71,31 +71,36 @@ PROFILE_DEFINITIONS = {
         'description': 'Minimal latency (~11ms), high dropout risk',
         'udp_depth_multiplier': 2.0 / 3.0,  # 2 blocks (was hardcoded as 2)
         'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
-        'recommended_protocol': 'udp'
+        'recommended_protocol': 'udp',
+        'min_buffer_blocks': 2,              # Start playback after 2 blocks (~11ms)
     },
     'low_latency': {
         'description': 'Low latency (~21ms), moderate dropout risk', 
         'udp_depth_multiplier': 4.0 / 3.0,  # 4 blocks (was hardcoded as 4)
         'zmq_depth_multiplier': 6.0,
-        'recommended_protocol': 'udp'
+        'recommended_protocol': 'udp',
+        'min_buffer_blocks': 4,              # Start playback after 4 blocks (~21ms)
     },
     'balanced': {
         'description': 'Balanced latency/stability (~32ms)',
         'udp_depth_multiplier': 2.0,        # UDP_BUFFER_DEPTH * 2
         'zmq_depth_multiplier': 8.0,
-        'recommended_protocol': 'udp'
+        'recommended_protocol': 'udp',
+        'min_buffer_blocks': 6,              # Start playback after 6 blocks (~32ms)
     },
     'high_buffer': {
         'description': 'Higher stability (~64ms)',
         'udp_depth_multiplier': 4.0,        # UDP_BUFFER_DEPTH * 4
         'zmq_depth_multiplier': 10.0,
-        'recommended_protocol': 'udp'
+        'recommended_protocol': 'udp',
+        'min_buffer_blocks': 12,             # Start playback after 12 blocks (~64ms)
     },
     'stable': {
         'description': 'ZMQ-optimized with high buffering (~191ms)',
         'udp_depth_multiplier': 8.0,        # Fallback for UDP
         'zmq_depth_multiplier': 12.0,       # UDP_BUFFER_DEPTH * 12
-        'recommended_protocol': 'zmq'
+        'recommended_protocol': 'zmq',
+        'min_buffer_blocks': 16,             # Start playback after 16 blocks (~85ms) - WiFi-safe
     }
 }
 
@@ -143,6 +148,28 @@ def get_recommended_protocol(profile: str) -> str:
         return 'udp'  # Default fallback
     
     return PROFILE_DEFINITIONS[profile]['recommended_protocol']
+
+def get_min_buffer_blocks(profile: str) -> int:
+    """
+    Get the minimum buffer blocks required before starting playback for a profile.
+    
+    Args:
+        profile: Profile name (must be in ALLOWED_PROFILES)
+        
+    Returns:
+        Minimum buffer blocks required before playback starts
+        
+    Raises:
+        ValueError: If profile is not recognized
+    """
+    if profile not in ALLOWED_PROFILES:
+        raise ValueError(f"Invalid profile '{profile}'. Allowed: {sorted(ALLOWED_PROFILES)}")
+    
+    if profile not in PROFILE_DEFINITIONS:
+        # Fallback for any missing profiles - conservative default
+        return 8
+    
+    return PROFILE_DEFINITIONS[profile]['min_buffer_blocks']
 
 def list_profiles() -> Dict[str, str]:
     """

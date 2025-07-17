@@ -7,7 +7,7 @@ import numpy as np
 import struct  # For parsing custom UDP headers
 import threading
 import json
-from spatial_audio_ai.config import UDP_BUFFER_DEPTH, get_profile_queue_depth, ALLOWED_PROFILES
+from spatial_audio_ai.config import UDP_BUFFER_DEPTH, get_profile_queue_depth, ALLOWED_PROFILES, get_min_buffer_blocks
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
 
@@ -126,9 +126,11 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                             profile = 'stable'  # Fallback to stable for invalid profiles
                         
                         depth = get_profile_queue_depth(profile, protocol='zmq')
+                        min_buffer = get_min_buffer_blocks(profile)
                         sound_system.set_max_queue_depth(depth)
+                        sound_system.set_min_buffer_blocks(min_buffer)
                         
-                        log_msg = f"[ZMQ][PROFILE] ✅ client={client_id} profile={profile} -> queue_depth={depth}"
+                        log_msg = f"[ZMQ][PROFILE] ✅ client={client_id} profile={profile} -> queue_depth={depth}, min_buffer={min_buffer}"
                         logger.info(log_msg)
                         print(log_msg)
                         
@@ -138,6 +140,7 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                             "control_ack": {
                                 "profile": profile,
                                 "queue_depth": depth,
+                                "min_buffer_blocks": min_buffer,
                                 "status": "connected",
                                 "server_timestamp": time_module.perf_counter()
                             }
@@ -286,8 +289,10 @@ class SoundServer:
                                 profile = 'balanced'  # Fallback to balanced for invalid UDP profiles
                             
                             depth = get_profile_queue_depth(profile, protocol='udp')
+                            min_buffer = get_min_buffer_blocks(profile)
                             sound_system.set_max_queue_depth(depth)
-                            msg = f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}"
+                            sound_system.set_min_buffer_blocks(min_buffer)
+                            msg = f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}, min_buffer={min_buffer}"
                             logger.info(msg)
                             print(msg)
                             continue

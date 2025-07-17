@@ -36,12 +36,50 @@ class StreamManager():
         self.queue = deque()
         self.index = 0
         self.queue_index = 0
+        # Add minimum buffer enforcement for stable streaming
+        self.min_buffer_blocks = 8  # Minimum buffer before starting playback (configurable)
+        self.playback_started = False  # Track if we've started playing
+
+    def set_min_buffer_blocks(self, min_blocks: int):
+        """Set minimum buffer blocks required before starting playback"""
+        self.min_buffer_blocks = min_blocks
+        if self.verbose:
+            print(f"[STREAM] Minimum buffer set to {min_blocks} blocks (~{min_blocks * BLOCKSIZE / SAMPLING_RATE * 1000:.1f}ms)")
 
     def callback(self, outdata : np.array, frames : int, time : float, status : sd.CallbackFlags) -> None:
         if status:
             print(f"Status: {status}")
         
-        if len(self.queue) > 0:
+        # Check if we have enough buffer to start/continue playback
+        current_queue_len = len(self.queue)
+        
+        # If we haven't started playback yet, wait for minimum buffer
+        if not self.playback_started:
+            if current_queue_len >= self.min_buffer_blocks:
+                self.playback_started = True
+                if self.verbose:
+                    print(f"[STREAM] Playback started with {current_queue_len} blocks buffer")
+            else:
+                # Not enough buffer yet - play silence and wait
+                audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
+                outdata[:] = audio_to_play
+                if self.verbose and current_queue_len > 0:
+                    print(f"[STREAM] Buffering: {current_queue_len}/{self.min_buffer_blocks} blocks")
+                return
+        
+        # Check for buffer underrun during playback
+        if current_queue_len == 0:
+            # Buffer underrun - stop playback and require rebuilding buffer
+            self.playback_started = False
+            audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
+            outdata[:] = audio_to_play
+            if not getattr(self, '_underflow_logged', False):
+                print(f"[SERVER][UNDERFLOW] Buffer underrun - stopping playback, will restart when {self.min_buffer_blocks} blocks available")
+                self._underflow_logged = True
+            return
+        
+        # Normal playback - we have buffer
+        if current_queue_len > 0:
             # Reset underflow flag when data is available
             self._underflow_logged = False
             audio_to_play = np.zeros((len(audio := self.queue.popleft()), 2), dtype=np.float32)
@@ -55,20 +93,12 @@ class StreamManager():
                 self._callback_count = 0
             
             self._callback_count += 1
-            current_queue_len = len(self.queue)
             
             # Log only when queue length changes by 2+ blocks OR every 500 callbacks (≈10 seconds)
             queue_change = abs(current_queue_len - self._last_logged_queue_len)
             if self.verbose and (queue_change >= 2 or self._callback_count % 500 == 0):
                 print(f"[AUDIO CB] Queue: {current_queue_len} blocks")
                 self._last_logged_queue_len = current_queue_len
-        else:
-            audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
-            outdata[:] = audio_to_play
-            # Log underflow only once when queue is empty
-            if not getattr(self, '_underflow_logged', False):
-                print(f"[SERVER][UNDERFLOW] queue empty – playing silence")
-                self._underflow_logged = True
 
     def start(self) -> None:
         # Configure stream based on latency mode
@@ -193,6 +223,18 @@ class SoundSystem():
     def set_max_queue_depth(self, depth: int) -> None:
         """Set a new maximum queue depth for adaptive buffering."""
         self.max_queue_depth = depth
+
+    def set_min_buffer_blocks(self, min_blocks: int) -> None:
+        """Set minimum buffer blocks for all streams to prevent underflows on unstable networks."""
+        if self.mock_mode:
+            return
+            
+        if hasattr(self, 'streams') and self.streams:
+            for stream_name, stream in self.streams.items():
+                if hasattr(stream, 'set_min_buffer_blocks'):
+                    stream.set_min_buffer_blocks(min_blocks)
+            if self.verbose:
+                print(f"[SOUND_SYSTEM] Set minimum buffer to {min_blocks} blocks for all {len(self.streams)} streams")
 
     def _start_mock_streams(self) -> dict:
         """Initialize mock streams for testing without hardware"""
