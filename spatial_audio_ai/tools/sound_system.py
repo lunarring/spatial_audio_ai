@@ -206,7 +206,20 @@ class SoundSystem():
         # Log only when buffer time changes significantly OR every 500 enqueues (≈10 seconds)
         buffer_change = abs(buf_secs - self._last_logged_buffer)
         if buffer_change > 0.1 or self._enqueue_counter % 500 == 0:  # 100ms buffer change or every 10s
-            print(f"[SERVER] Buffer: {buf_secs:.3f}s (enqueue: {t1-t0:.3f}s)")
+            # Get buffer status info
+            buffer_ms = buf_secs * 1000
+            min_buffer_ms = getattr(self, '_min_buffer_ms', 42.7)  # Default 8 blocks at 48kHz (~42.7ms)
+            
+            # Check if any stream is currently playing
+            playback_active = False
+            if hasattr(self, 'streams') and self.streams:
+                first_stream = next(iter(self.streams.values()))
+                playback_active = getattr(first_stream, 'playback_started', False)
+            
+            status = "PLAYING" if playback_active else "BUFFERING"
+            buffer_health = "HEALTHY" if buffer_ms >= min_buffer_ms else "LOW"
+            
+            print(f"[SERVER][BUFFER] {status} | {buffer_ms:.1f}ms queued (min: {min_buffer_ms:.1f}ms) | Health: {buffer_health} | Enqueue: {(t1-t0)*1000:.1f}ms")
             self._last_logged_buffer = buf_secs
 
     def get_current_buffer_time(self) -> int:
@@ -229,12 +242,15 @@ class SoundSystem():
         if self.mock_mode:
             return
             
+        # Store minimum buffer in milliseconds for logging
+        self._min_buffer_ms = (min_blocks * BLOCKSIZE / SAMPLING_RATE) * 1000
+            
         if hasattr(self, 'streams') and self.streams:
             for stream_name, stream in self.streams.items():
                 if hasattr(stream, 'set_min_buffer_blocks'):
                     stream.set_min_buffer_blocks(min_blocks)
             if self.verbose:
-                print(f"[SOUND_SYSTEM] Set minimum buffer to {min_blocks} blocks for all {len(self.streams)} streams")
+                print(f"[SOUND_SYSTEM] Set minimum buffer to {min_blocks} blocks ({self._min_buffer_ms:.1f}ms) for all {len(self.streams)} streams")
 
     def _start_mock_streams(self) -> dict:
         """Initialize mock streams for testing without hardware"""
