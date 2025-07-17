@@ -18,6 +18,11 @@ from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
 
 CHUNKSIZE = BLOCKSIZE * 4
 
+# Control message magic for profile selection
+CONTROL_MAGIC = b'NPCC'
+# Allowed queue-depth profiles (clearer names)
+ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer'}
+
 sd.default.blocksize = BLOCKSIZE
 
 # Dummy simulated socket class for simulation mode
@@ -54,6 +59,9 @@ class SoundNetworkStreamer:
         self.port = port
         self.simulate = simulate
         self.profile = profile
+        # Validate profile selection
+        if self.profile is not None and self.profile not in ALLOWED_PROFILES:
+            raise ValueError(f"Invalid profile '{self.profile}'. Allowed profiles: {sorted(ALLOWED_PROFILES)}")
         if self.simulate:
             self.socket = SimulatedSocket()
         else:

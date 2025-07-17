@@ -106,26 +106,26 @@ class SoundServer:
                             if addr not in clients:
                                 clients.add(addr)
                                 last_seq_map[addr] = None
-                            # Map profile to queue depth
+                            # Map profile names to queue depths (clearer names)
                             depth_map = {
-                                'ultra': 2,
-                                'low': 4,
-                                'stable': UDP_BUFFER_DEPTH * 2,
-                                'max': UDP_BUFFER_DEPTH * 4
+                                'ultra_low_latency': 2,
+                                'low_latency': 4,
+                                'balanced': UDP_BUFFER_DEPTH * 2,
+                                'high_buffer': UDP_BUFFER_DEPTH * 4
                             }
                             depth = depth_map.get(profile, UDP_BUFFER_DEPTH)
                             sound_system.set_max_queue_depth(depth)
-                            logger.info(f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}")
-                            if self.verbose:
-                                print(f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}")
+                            msg = f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}"
+                            logger.info(msg)
+                            print(msg)
                             continue
                         # New audio client registration when no control packet
                         if addr not in clients:
                             clients.add(addr)
                             last_seq_map[addr] = None
-                            logger.info(f"[SERVER][JOIN] client={addr}")
-                            if self.verbose:
-                                print(f"[SERVER][JOIN] client={addr}")
+                            msg = f"[SERVER][JOIN] client={addr}"  # client connected
+                            logger.info(msg)
+                            print(msg)
                         # Extract and parse custom header
                         raw_header = data[:s.HEADER_SIZE]
                         try:

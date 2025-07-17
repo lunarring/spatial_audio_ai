@@ -11,7 +11,7 @@ from spatial_audio_ai.tools.spatializer import CHUNKSIZE, SAMPLING_RATE
 # Generate a simple sine wave
 from spatial_audio_ai import get_sample_rate
 sample_rate = get_sample_rate()  # Use configured sample rate
-duration = 5  # Duration in seconds
+duration = 30  # Duration in seconds
 frequency = 440  # A4 note frequency in Hz
 
 # Create a sine wave
@@ -27,7 +27,7 @@ spatializer = Spatializer()
 scene = Scene(spatializer)
 scene.register(sound_object)
 
-sound_streamer = SoundNetworkStreamer()
+sound_streamer = SoundNetworkStreamer(profile="balanced")
 
 # Implement precise real-time timing
 chunk_duration = CHUNKSIZE / SAMPLING_RATE
