@@ -27,7 +27,8 @@ spatializer = Spatializer()
 scene = Scene(spatializer)
 scene.register(sound_object)
 
-sound_streamer = SoundNetworkStreamer(profile="balanced")
+# Initialize network streamer with ARQ profile for high-loss Wi-Fi
+sound_streamer = SoundNetworkStreamer(profile="super_buffer")
 
 # Implement precise real-time timing
 chunk_duration = CHUNKSIZE / SAMPLING_RATE

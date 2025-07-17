@@ -15,7 +15,7 @@ import socket  # Add socket import for UDP support
 import struct  # For ARQ ACK handling
 import gradio as gr
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, UDP_BUFFER_DEPTH
 
 CHUNKSIZE = BLOCKSIZE * 4
 
@@ -72,12 +72,13 @@ class SoundNetworkStreamer:
         self.socket_connected = False
         self.lock = threading.Lock()  # To ensure thread safety if needed
         # ARQ state
+        # Window sizes matched to server queue-depth profiles
         self.window_map = {
             'ultra_low_latency': 2,
             'low_latency': 4,
-            'balanced': 8,
-            'high_buffer': 16,
-            'super_buffer': 32
+            'balanced': UDP_BUFFER_DEPTH * 2,
+            'high_buffer': UDP_BUFFER_DEPTH * 4,
+            'super_buffer': UDP_BUFFER_DEPTH * 8,
         }
         self.last_sent_seq = -1
         self.last_ack_seq = -1
