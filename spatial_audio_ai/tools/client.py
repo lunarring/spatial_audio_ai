@@ -301,10 +301,6 @@ class SoundNetworkStreamerZMQ:
             self.zmq_client.send_json(audio_msg)
             self._seq += 1
             
-            # Log occasionally for debugging
-            if self._seq % 50 == 0:
-                print(f"[ZMQ] Sent audio seq={self._seq} shape={data.shape}")
-                
         except Exception as e:
             print(f"[ZMQ] Failed to send data: {e}")
             print(f"[ZMQ] This may indicate the server is not running or connection was lost")
