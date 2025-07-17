@@ -57,19 +57,27 @@ UDP_BUFFER_DEPTH = MAX_AUDIO_QUEUE_DEPTH  # Number of blocks to buffer for UDP
 
 # Available audio profiles
 ALLOWED_PROFILES = {
-    'ultra_low_latency',  # Minimal buffering, highest risk of dropouts
-    'low_latency',        # Low buffering, some dropout risk
-    'balanced',           # Balanced latency/stability
-    'high_buffer',        # Higher buffering, more stable
-    'stable'              # ZMQ-optimized profile with high buffering
+    'experimental_ultra_low',  # Experimental: 2-block queue, highest dropout risk
+    'ultra_low_latency',      # Minimal buffering, reduced dropout risk  
+    'low_latency',            # Low buffering, some dropout risk
+    'balanced',               # Balanced latency/stability
+    'high_buffer',            # Higher buffering, more stable
+    'stable'                  # ZMQ-optimized profile with high buffering
 }
 
 # Profile definitions with queue depths
 # Each profile maps to a multiple of UDP_BUFFER_DEPTH
 PROFILE_DEFINITIONS = {
+    'experimental_ultra_low': {
+        'description': 'EXPERIMENTAL: Absolute minimal latency (~11ms), very high dropout risk',
+        'udp_depth_multiplier': 2.0 / 3.0,  # 2 blocks - original ultra_low_latency setting
+        'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
+        'recommended_protocol': 'udp',
+        'min_buffer_blocks': 2,              # Start playback after 2 blocks (~11ms)
+    },
     'ultra_low_latency': {
-        'description': 'Minimal latency (~11ms), high dropout risk',
-        'udp_depth_multiplier': 2.0 / 3.0,  # 2 blocks (was hardcoded as 2)
+        'description': 'Minimal latency (~16ms), reduced dropout risk',
+        'udp_depth_multiplier': 1.0,         # 3 blocks (was 2.0/3.0 = 2 blocks)  
         'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
         'recommended_protocol': 'udp',
         'min_buffer_blocks': 2,              # Start playback after 2 blocks (~11ms)
