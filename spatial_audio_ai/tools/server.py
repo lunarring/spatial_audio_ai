@@ -111,7 +111,8 @@ class SoundServer:
                                 'ultra_low_latency': 2,
                                 'low_latency': 4,
                                 'balanced': UDP_BUFFER_DEPTH * 2,
-                                'high_buffer': UDP_BUFFER_DEPTH * 4
+                                'high_buffer': UDP_BUFFER_DEPTH * 4,
+                                'super_buffer': UDP_BUFFER_DEPTH * 8
                             }
                             depth = depth_map.get(profile, UDP_BUFFER_DEPTH)
                             sound_system.set_max_queue_depth(depth)

@@ -21,7 +21,7 @@ CHUNKSIZE = BLOCKSIZE * 4
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
 # Allowed queue-depth profiles (clearer names)
-ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer'}
+ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer'}
 
 sd.default.blocksize = BLOCKSIZE
 
