@@ -510,7 +510,7 @@ class BlackHoleStereoRelayer:
         self._recording_thread.start()
 
         # Pre-buffer chunks for smooth playback
-        min_buffer_chunks = 8  # Increased for smaller chunks (8 * 21.3ms = ~170ms buffer)
+        min_buffer_chunks = 16  # Increased buffer depth (16 * 21.3ms = ~340ms buffer)
         chunk_duration = self.chunk_size / self.sample_rate
         
         try:
