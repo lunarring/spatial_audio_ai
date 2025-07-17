@@ -64,6 +64,8 @@ def handle_client(conn, addr, sound_system, verbose=False):
 
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
+# ACK message magic for ARQ
+ACK_MAGIC = b'NPSA'
 
 class SoundServer:
     """Sound server class that can be used to start a server instance"""
@@ -159,6 +161,12 @@ class SoundServer:
                         # Reconstruct and enqueue
                         frame = np.frombuffer(payload[:expected], dtype=dtype).reshape(shape)
                         sound_system.add_to_playback_queue(frame, seq)
+                        # Send ACK back to client for flow control
+                        try:
+                            ack_packet = ACK_MAGIC + struct.pack('<I', seq)
+                            s.sendto(ack_packet, addr)
+                        except Exception as e:
+                            logger.warning(f"[SERVER][ACK_FAIL] client={addr} seq={seq} err={e}")
                     except socket.timeout:
                         continue
             except KeyboardInterrupt:

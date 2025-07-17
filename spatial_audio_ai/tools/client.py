@@ -12,6 +12,7 @@ from collections import deque
 import threading
 import logging
 import socket  # Add socket import for UDP support
+import struct  # For ARQ ACK handling
 import gradio as gr
 from spatial_audio_ai.tools.tools import generate_random_noise
 from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
@@ -20,6 +21,8 @@ CHUNKSIZE = BLOCKSIZE * 4
 
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
+# ACK message magic for ARQ
+ACK_MAGIC = b'NPSA'
 # Allowed queue-depth profiles (clearer names)
 ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer'}
 
@@ -68,6 +71,21 @@ class SoundNetworkStreamer:
             self.socket = FastNumpySocket(type=socket.SOCK_DGRAM)  # Use UDP for streaming
         self.socket_connected = False
         self.lock = threading.Lock()  # To ensure thread safety if needed
+        # ARQ state
+        self.window_map = {
+            'ultra_low_latency': 2,
+            'low_latency': 4,
+            'balanced': 8,
+            'high_buffer': 16,
+            'super_buffer': 32
+        }
+        self.last_sent_seq = -1
+        self.last_ack_seq = -1
+        self.unacked = {}
+        self.retransmit_count = {}
+        self.ack_timeout = CHUNKSIZE / SAMPLING_RATE * 2
+        self.retransmit_interval = CHUNKSIZE / SAMPLING_RATE
+        self._stop_arq = threading.Event()
         self.__enter__()
 
     def __enter__(self):
@@ -85,6 +103,17 @@ class SoundNetworkStreamer:
                 print(f"[CLIENT][PROFILE] sent profile={self.profile}")
             except Exception as e:
                 print(f"[CLIENT][PROFILE] failed to send profile: {e}")
+        # Setup ARQ if UDP
+        if not self.simulate:
+            # Determine window size from profile
+            self.window_size = self.window_map.get(self.profile, 16)
+            # Set socket timeout for ACK listener
+            self.socket.settimeout(self.ack_timeout)
+            # Start ACK listener and retransmit threads
+            self.ack_thread = threading.Thread(target=self._ack_listener, daemon=True)
+            self.ack_thread.start()
+            self.retransmit_thread = threading.Thread(target=self._retransmit_loop, daemon=True)
+            self.retransmit_thread.start()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -95,13 +124,30 @@ class SoundNetworkStreamer:
             self.socket.close()
             self.socket_connected = False
             print("Connection closed.")
+        # Stop ARQ threads
+        self._stop_arq.set()
 
     def send(self, data: np.ndarray):
         if data.ndim == 2:
             if data.shape[1] % BLOCKSIZE == 0:
+                # Sliding-window pacing: wait if too many unacked frames
+                if not self.simulate:
+                    while True:
+                        with self.lock:
+                            in_flight = self.last_sent_seq - self.last_ack_seq
+                        if in_flight < self.window_size:
+                            break
+                        time.sleep(0.001)
                 try:
                     self.socket.sendall(data)
                     # print(f"Sent data with shape {data.shape} to the server.")
+                    # Track unacked frame for ARQ
+                    seq = self.socket._seq - 1
+                    if not self.simulate:
+                        send_time = time.time()
+                        with self.lock:
+                            self.unacked[seq] = (send_time, data)
+                            self.last_sent_seq = seq
                 except Exception as e:
                     print(f"Failed to send data: {e}")
             else:
@@ -129,6 +175,40 @@ class SoundNetworkStreamer:
             self.send(data)
             print("waiting to receive...")
             return self.receive()
+
+    def _ack_listener(self):
+        sock = self.socket
+        while not self._stop_arq.is_set():
+            try:
+                ack_data, _ = sock.recvfrom(len(ACK_MAGIC) + 4)
+            except Exception:
+                continue
+            if ack_data.startswith(ACK_MAGIC):
+                seq = struct.unpack('<I', ack_data[len(ACK_MAGIC):])[0]
+                with self.lock:
+                    if seq > self.last_ack_seq:
+                        self.last_ack_seq = seq
+                    # Remove from unacked if present
+                    self.unacked.pop(seq, None)
+                    self.retransmit_count.pop(seq, None)
+
+    def _retransmit_loop(self):
+        while not self._stop_arq.is_set():
+            now = time.time()
+            to_retx = []
+            with self.lock:
+                for seq, (t0, data) in list(self.unacked.items()):
+                    if now - t0 > self.ack_timeout and self.retransmit_count.get(seq, 0) < 1:
+                        to_retx.append((seq, data))
+                        self.retransmit_count[seq] = self.retransmit_count.get(seq, 0) + 1
+                        self.unacked[seq] = (now, data)
+            for seq, data in to_retx:
+                try:
+                    self.socket.sendall(data)
+                    print(f"[CLIENT][RETRANSMIT] seq={seq}")
+                except Exception:
+                    pass
+            time.sleep(self.retransmit_interval)
 
 
 class BlackHoleStereoRelayer:
