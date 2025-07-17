@@ -76,11 +76,11 @@ PROFILE_DEFINITIONS = {
         'min_buffer_blocks': 2,              # Start playback after 2 blocks (~11ms)
     },
     'ultra_low_latency': {
-        'description': 'Minimal latency (~16ms), reduced dropout risk',
-        'udp_depth_multiplier': 1.0,         # 3 blocks (was 2.0/3.0 = 2 blocks)  
+        'description': 'Low latency (~21ms), improved stability',
+        'udp_depth_multiplier': 4.0 / 3.0,   # 4 blocks (was 1.0 = 3 blocks)  
         'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
         'recommended_protocol': 'udp',
-        'min_buffer_blocks': 2,              # Start playback after 2 blocks (~11ms)
+        'min_buffer_blocks': 3,              # Start playback after 3 blocks (~16ms)
     },
     'low_latency': {
         'description': 'Low latency (~21ms), moderate dropout risk', 

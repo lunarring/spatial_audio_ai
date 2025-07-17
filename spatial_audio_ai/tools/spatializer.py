@@ -149,7 +149,7 @@ if __name__ == "__main__":
     scene.volume = 0.3
     scene.register(so)
 
-    sound_streamer = SoundNetworkStreamer()
+    sound_streamer = SoundNetworkStreamer(profile='ultra_low_latency')
     
     # Implement precise real-time timing
     chunk_duration = CHUNKSIZE / SAMPLING_RATE
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     if False:
         import lunar_tools as lt
         receiver = lt.OSCReceiver('10.40.50.9')
-        sound_streamer = SoundNetworkStreamer()
+        sound_streamer = SoundNetworkStreamer(profile='ultra_low_latency')
         
         raw_sound1 = sf.read("/home/lugo/Downloads/song.wav")
         sound11 = np.sin(0.5*1e-2*np.linspace(0,44100*25*5,44100*25*5))
@@ -263,7 +263,7 @@ if __name__ == "__main__":
         scene.register(so_a)
         scene.register(so_b)
     
-        sound_streamer = SoundNetworkStreamer()
+        sound_streamer = SoundNetworkStreamer(profile='ultra_low_latency')
         list_chunks = []
         for j, chunk in enumerate(scene.run()):
             

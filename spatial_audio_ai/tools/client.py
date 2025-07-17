@@ -928,6 +928,8 @@ def main():
     test_parser.add_argument('--duration', type=float, default=1.0, help='Duration in seconds (default: 1.0)')
     test_parser.add_argument('--host', default="10.40.49.47", help='Server host address')
     test_parser.add_argument('--port', type=int, default=9999, help='Server port number')
+    test_parser.add_argument('--profile', default='ultra_low_latency', choices=list(ALLOWED_PROFILES), 
+                            help='Audio profile (default: ultra_low_latency)')
     
     # BlackHole command
     blackhole_parser = subparsers.add_parser('blackhole', help='Start BlackHole audio relayer with Gradio interface')
@@ -945,7 +947,7 @@ def main():
         if not 1 <= args.speaker <= 13:
             raise ValueError(f"Speaker number must be between 1 and 13")
         
-        sound_streamer = SoundNetworkStreamer(host=args.host, port=args.port)
+        sound_streamer = SoundNetworkStreamer(host=args.host, port=args.port, profile=args.profile)
         
         # Generate random audio data for the specified speaker
         sound_file, actual_duration = generate_random_noise(
@@ -958,6 +960,7 @@ def main():
         )
         
         print(f'Sending random noise through speaker {args.speaker} with duration {actual_duration:.2f} seconds')
+        print(f"Using profile: {args.profile}")
         print(f"Sound array shape: {sound_file.shape}")
         print(f"Data stats - Min: {np.min(sound_file)}, Max: {np.max(sound_file)}, Mean: {np.mean(sound_file)}")
         

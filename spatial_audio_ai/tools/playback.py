@@ -12,7 +12,7 @@ import numpy as np
 import soundfile as sf
 import time
 from spatial_audio_ai.tools.client import SoundNetworkStreamer
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, ALLOWED_PROFILES
 
 
 def load_audio_file(file_path: str) -> tuple[np.ndarray, int]:
@@ -187,7 +187,8 @@ def stream_audio_file(file_path: str,
                      host: str = "10.40.49.47", 
                      port: int = 9999,
                      volume: float = 1.0,
-                     auto_resample: bool = True):
+                     auto_resample: bool = True,
+                     profile: str = 'ultra_low_latency'):
     """
     Load and stream an audio file over the network.
     
@@ -199,6 +200,7 @@ def stream_audio_file(file_path: str,
         port: Server port
         volume: Volume multiplier (0.0 to 2.0)
         auto_resample: Whether to resample to system rate
+        profile: Audio latency profile (default: ultra_low_latency)
     """
     # Validate speaker ID if using single mode
     if mapping_scheme == 'single':
@@ -240,7 +242,8 @@ def stream_audio_file(file_path: str,
 
     # Stream the audio in chunks
     print(f"Connecting to server at {host}:{port}")
-    streamer = SoundNetworkStreamer(host=host, port=port)
+    print(f"Using profile: {profile}")
+    streamer = SoundNetworkStreamer(host=host, port=port, profile=profile)
     try:
         if mapping_scheme == 'single':
             print(
@@ -297,6 +300,8 @@ Examples:
                        help='Server host address (default: 10.40.49.47)')
     parser.add_argument('--port', type=int, default=9999,
                        help='Server port (default: 9999)')
+    parser.add_argument('--profile', default='ultra_low_latency', choices=list(ALLOWED_PROFILES),
+                       help='Audio latency profile (default: ultra_low_latency)')
     parser.add_argument('--no-resample', action='store_true',
                        help='Do not resample audio to system rate')
     
@@ -310,7 +315,8 @@ Examples:
             host=args.host,
             port=args.port,
             volume=args.volume,
-            auto_resample=not args.no_resample
+            auto_resample=not args.no_resample,
+            profile=args.profile
         )
         
     except (FileNotFoundError, ValueError, RuntimeError) as e:
