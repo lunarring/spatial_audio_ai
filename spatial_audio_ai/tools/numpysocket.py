@@ -35,38 +35,47 @@ class FastNumpySocket(socket.socket):
             self.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
     def sendall(self, frame: np.ndarray) -> None:  # type: ignore[override]
-        """Send numpy array using raw binary format for minimal latency."""
-        # If using UDP, downcast to float32 to fit within MTU
+        """Send numpy array using raw binary format with time-axis fragmentation for UDP."""
+        # Downcast to float32 for UDP to reduce payload size
         if self.type == socket.SOCK_DGRAM and frame.dtype != np.float32:
             frame = frame.astype(np.float32)
         # Ensure contiguous array for efficient transmission
         if not frame.flags.c_contiguous:
             frame = np.ascontiguousarray(frame)
-        # Pack header and payload
-        header = self._pack_header(frame)
-        data_bytes = frame.tobytes()
-        # Send in one datagram for UDP to avoid fragmentation
         if self.type == socket.SOCK_DGRAM:
-            packet = header + data_bytes
-            try:
-                super().send(packet)
-                logging.debug(f"Fast UDP frame sent: seq={self._seq-1}, size={len(packet)} bytes")
-            except OSError as e:
-                if getattr(e, 'errno', None) == errno.EMSGSIZE and frame.ndim == 2:
-                    # Fragment on channel dimension if packet too large
-                    for ch in range(frame.shape[0]):
-                        sub_frame = frame[ch:ch+1, :]
-                        sub_header = self._pack_header(sub_frame)
-                        sub_data = sub_frame.tobytes()
-                        sub_packet = sub_header + sub_data
-                        super().send(sub_packet)
-                        logging.debug(f"Fast UDP sub-frame sent: seq={self._seq-1}, channel={ch}, size={len(sub_packet)} bytes")
+            # UDP: split along time axis into BLOCKSIZE slices to avoid oversize
+            from spatial_audio_ai.config import BLOCKSIZE
+            # Determine total samples along time axis
+            if frame.ndim == 1:
+                total = frame.shape[0]
+            elif frame.ndim == 2:
+                total = frame.shape[1]
+            else:
+                raise ValueError(f"Unsupported array dimensions: {frame.ndim}")
+            # Send each time-slice
+            for start in range(0, total, BLOCKSIZE):
+                if frame.ndim == 1:
+                    sub = frame[start:start + BLOCKSIZE]
                 else:
-                    raise
+                    sub = frame[:, start:start + BLOCKSIZE]
+                # Pad last slice if needed
+                if sub.ndim == 1:
+                    if sub.shape[0] < BLOCKSIZE:
+                        sub = np.pad(sub, (0, BLOCKSIZE - sub.shape[0]), 'constant')
+                else:
+                    if sub.shape[1] < BLOCKSIZE:
+                        padding = ((0, 0), (0, BLOCKSIZE - sub.shape[1]))
+                        sub = np.pad(sub, padding, 'constant')
+                # Pack and send
+                header = self._pack_header(sub)
+                packet = header + sub.tobytes()
+                super().send(packet)
+                logging.debug(f"Fast UDP sub-frame sent: seq={self._seq-1}, shape={sub.shape}, size={len(packet)} bytes")
         else:
             # TCP: send header then payload
+            header = self._pack_header(frame)
             super().sendall(header)
-            super().sendall(data_bytes)
+            super().sendall(frame.tobytes())
             logging.debug(f"Fast TCP frame sent: seq={self._seq-1}, shape={frame.shape}, dtype={frame.dtype}")
 
     def recv(self, bufsize: int = 8192) -> np.ndarray:  # type: ignore[override]

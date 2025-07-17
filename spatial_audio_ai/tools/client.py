@@ -107,14 +107,19 @@ class SoundNetworkStreamer:
         # Setup ARQ if UDP
         if not self.simulate:
             # Determine window size from profile
-            self.window_size = self.window_map.get(self.profile, 16)
-            # Set socket timeout for ACK listener
-            self.socket.settimeout(self.ack_timeout)
-            # Start ACK listener and retransmit threads
+            self.window_size = self.window_map.get(self.profile, UDP_BUFFER_DEPTH * 4)
+            # Start ACK and retransmit threads
             self.ack_thread = threading.Thread(target=self._ack_listener, daemon=True)
             self.ack_thread.start()
             self.retransmit_thread = threading.Thread(target=self._retransmit_loop, daemon=True)
             self.retransmit_thread.start()
+        # Setup background sender for pacing
+        from collections import deque
+        self.send_buffer = deque()
+        self.chunk_duration = CHUNKSIZE / SAMPLING_RATE
+        self._stop_sender = threading.Event()
+        self.sender_thread = threading.Thread(target=self._sender_loop, daemon=True)
+        self.sender_thread.start()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -125,39 +130,49 @@ class SoundNetworkStreamer:
             self.socket.close()
             self.socket_connected = False
             print("Connection closed.")
-        # Stop ARQ threads
+        # Stop ARQ and sender threads
         self._stop_arq.set()
+        self._stop_sender.set()
 
     def send(self, data: np.ndarray):
-        if data.ndim == 2:
-            if data.shape[1] % BLOCKSIZE == 0:
-                # Sliding-window pacing: wait if too many unacked frames
-                if not self.simulate:
-                    while True:
-                        with self.lock:
-                            in_flight = self.last_sent_seq - self.last_ack_seq
-                        # Debug pacing info
-                        print(f"[CLIENT][PACING] in_flight={in_flight} window_size={self.window_size}")
-                        if in_flight < self.window_size:
-                            break
-                        time.sleep(0.001)
-                try:
-                    self.socket.sendall(data)
-                    # Track unacked frame for ARQ
-                    seq = self.socket._seq - 1
-                    if not self.simulate:
-                        send_time = time.time()
-                        with self.lock:
-                            self.unacked[seq] = (send_time, data)
-                            self.last_sent_seq = seq
-                    # Debug send info
-                    print(f"[CLIENT][SEND] seq={seq} unacked_count={len(self.unacked)}")
-                except Exception as e:
-                    print(f"Failed to send data: {e}")
-            else:
-                print(f"Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
+        """
+        Enqueue a chunk for the background sender thread.
+        """
+        if data.ndim == 2 and data.shape[1] % BLOCKSIZE == 0:
+            self.send_buffer.append(data)
         else:
-            print("Data must be a 2-dimensional numpy array")
+            print(f"Invalid data sent: must be 2D and width divisible by {BLOCKSIZE}")
+
+    def _sender_loop(self):
+        """Background thread: send queued frames at fixed intervals."""
+        while not self._stop_sender.is_set():
+            if self.send_buffer:
+                frame = self.send_buffer.popleft()
+                self._send_frame(frame)
+            time.sleep(self.chunk_duration)
+
+    def _send_frame(self, data: np.ndarray):
+        """Send a single frame with ARQ pacing and retransmit tracking."""
+        # ARQ sliding-window pacing
+        if not self.simulate:
+            while True:
+                with self.lock:
+                    in_flight = self.last_sent_seq - self.last_ack_seq
+                if in_flight < self.window_size:
+                    break
+                time.sleep(0.001)
+        # Actual send via UDP
+        try:
+            self.socket.sendall(data)
+            seq = self.socket._seq - 1
+            if not self.simulate:
+                send_time = time.time()
+                with self.lock:
+                    self.unacked[seq] = (send_time, data)
+                    self.last_sent_seq = seq
+            print(f"[CLIENT][SEND] seq={seq} unacked_count={len(self.unacked)}")
+        except Exception as e:
+            print(f"Failed to send data: {e}")
 
     def receive(self) -> np.ndarray:
         try:
