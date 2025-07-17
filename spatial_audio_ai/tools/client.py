@@ -352,7 +352,7 @@ class BlackHoleStereoRelayer:
         self.audio_deque = deque(maxlen=self.max_queue_size)
 
         # Initialize the SoundNetworkStreamer (using real connection)
-        self.sound_streamer = SoundNetworkStreamer(profile='stable')
+        self.sound_streamer = SoundNetworkStreamer(profile='stable_zmq')
 
         # Thread control
         self._recording_thread = None
