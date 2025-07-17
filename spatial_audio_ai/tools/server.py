@@ -131,6 +131,23 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         log_msg = f"[ZMQ][PROFILE] ✅ client={client_id} profile={profile} -> queue_depth={depth}"
                         logger.info(log_msg)
                         print(log_msg)
+                        
+                        # Send acknowledgment back to client
+                        ack_msg = {
+                            "client_id": client_id,
+                            "control_ack": {
+                                "profile": profile,
+                                "queue_depth": depth,
+                                "status": "connected",
+                                "server_timestamp": time_module.perf_counter()
+                            }
+                        }
+                        try:
+                            zmq_server.send_json(ack_msg)
+                            print(f"[ZMQ][ACK] ✅ Sent acknowledgment to client {client_id}")
+                        except Exception as e:
+                            print(f"[ZMQ][ACK] ❌ Failed to send acknowledgment: {e}")
+                        
                         continue
                     
                     # Handle audio data messages

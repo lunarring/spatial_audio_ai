@@ -205,31 +205,59 @@ class SoundNetworkStreamerZMQ:
             
             self.zmq_client = lt.ZMQPairEndpoint(is_server=False, ip=self.host, port=str(self.zmq_port))
             print(f"[ZMQ][CLIENT] ZMQ endpoint created for {self.host}:{self.zmq_port}")
-            print(f"[ZMQ][CLIENT] ZMQ client object: {self.zmq_client}")
             
-            # Test connectivity by sending profile control message
+            # Test connectivity by sending profile control message and waiting for acknowledgment
             control_msg = {
                 "client_id": self.client_id,
                 "control": {
                     "profile": self.profile
                 }
             }
-            print(f"[ZMQ][CLIENT] Testing connection by sending control message: {control_msg}")
+            print(f"[ZMQ][CLIENT] Testing connection by sending control message...")
             self.zmq_client.send_json(control_msg)
             
-            # Small delay to allow message to be sent
-            time.sleep(0.1)
+            # Wait for acknowledgment with timeout
+            print(f"[ZMQ][CLIENT] Waiting for acknowledgment from server (timeout: 3 seconds)...")
+            ack_received = False
+            timeout_start = time.perf_counter()
+            timeout_duration = 3.0  # 3 seconds timeout
             
-            # Mark as connected only after message was sent successfully
+            while time.perf_counter() - timeout_start < timeout_duration:
+                try:
+                    messages = self.zmq_client.get_messages()
+                    if messages:
+                        for msg in messages:
+                            if isinstance(msg, dict) and 'control_ack' in msg:
+                                ack_info = msg['control_ack']
+                                if msg.get('client_id') == self.client_id:
+                                    print(f"[ZMQ][CLIENT] ✅ Received acknowledgment from server!")
+                                    print(f"[ZMQ][CLIENT] ✅ Profile: {ack_info.get('profile')}, Queue depth: {ack_info.get('queue_depth')}")
+                                    ack_received = True
+                                    break
+                        if ack_received:
+                            break
+                except Exception as e:
+                    print(f"[ZMQ][CLIENT] Error checking for acknowledgment: {e}")
+                
+                # Small delay to avoid busy waiting
+                time.sleep(0.01)
+            
+            if not ack_received:
+                error_msg = f"[ZMQ][CLIENT] ❌ No acknowledgment received within {timeout_duration} seconds"
+                print(error_msg)
+                print(f"[ZMQ][CLIENT] ❌ This indicates the server is not running at {self.host}:{self.zmq_port}")
+                raise ConnectionError(f"ZMQ server not responding at {self.host}:{self.zmq_port}")
+            
+            # Mark as connected only after receiving acknowledgment
             self.connected = True
-            print(f"[ZMQ][CLIENT] ✅ Connection appears successful - profile message sent: profile={self.profile} client_id={self.client_id}")
-            print(f"[ZMQ][CLIENT] Note: Server availability will be confirmed when audio data is processed")
+            print(f"[ZMQ][CLIENT] ✅ Connection confirmed! Server is running and responsive.")
             
         except Exception as e:
             print(f"[ZMQ][CLIENT] ❌ Failed to establish connection: {e}")
-            print(f"[ZMQ][CLIENT] This usually means the server is not running")
-            import traceback
-            traceback.print_exc()
+            if "ZMQ server not responding" in str(e):
+                print(f"[ZMQ][CLIENT] ❌ Server is not running or not reachable")
+            else:
+                print(f"[ZMQ][CLIENT] ❌ Connection error (server may not be running)")
             self.connected = False
             raise
         
