@@ -39,12 +39,39 @@ class StreamManager():
         # Add minimum buffer enforcement for stable streaming
         self.min_buffer_blocks = 8  # Minimum buffer before starting playback (configurable)
         self.playback_started = False  # Track if we've started playing
+        
+        # Adaptive buffer management for ultra-low latency profiles
+        self.target_buffer_blocks = 2  # Target buffer level for stable playback
+        self.adaptive_mode = False  # Enable adaptive timing adjustments
 
     def set_min_buffer_blocks(self, min_blocks: int):
         """Set minimum buffer blocks required before starting playback"""
         self.min_buffer_blocks = min_blocks
+        # For ultra-low latency profiles, enable adaptive mode
+        if min_blocks <= 3:  # ultra_low_latency and experimental profiles
+            self.adaptive_mode = True
+            self.target_buffer_blocks = min_blocks + 1  # Target 1 block above minimum
+        else:
+            self.adaptive_mode = False
+            
         if self.verbose:
-            print(f"[STREAM] Minimum buffer set to {min_blocks} blocks (~{min_blocks * BLOCKSIZE / SAMPLING_RATE * 1000:.1f}ms)")
+            mode_str = " (adaptive mode)" if self.adaptive_mode else ""
+            print(f"[STREAM] Minimum buffer set to {min_blocks} blocks (~{min_blocks * BLOCKSIZE / SAMPLING_RATE * 1000:.1f}ms){mode_str}")
+
+    def get_buffer_health(self) -> str:
+        """Get current buffer health status for adaptive management"""
+        current_queue_len = len(self.queue)
+        if not self.adaptive_mode:
+            return "stable"
+        
+        if current_queue_len == 0:
+            return "critical"  # Buffer underrun
+        elif current_queue_len == 1:
+            return "low"       # Close to underrun
+        elif current_queue_len <= self.target_buffer_blocks:
+            return "good"      # At target level
+        else:
+            return "high"      # Above target (risk of overflow)
 
     def callback(self, outdata : np.array, frames : int, time : float, status : sd.CallbackFlags) -> None:
         if status:
@@ -94,10 +121,11 @@ class StreamManager():
             
             self._callback_count += 1
             
-            # Log only when queue length changes by 2+ blocks OR every 500 callbacks (≈10 seconds)
+            # Log occasionally with buffer health info for adaptive mode
             queue_change = abs(current_queue_len - self._last_logged_queue_len)
             if self.verbose and (queue_change >= 2 or self._callback_count % 500 == 0):
-                print(f"[AUDIO CB] Queue: {current_queue_len} blocks")
+                health = self.get_buffer_health()
+                print(f"[AUDIO CB] Queue: {current_queue_len} blocks | Health: {health}")
                 self._last_logged_queue_len = current_queue_len
 
     def start(self) -> None:
@@ -180,8 +208,26 @@ class SoundSystem():
         current_queue_len = len(self.streams[first_stream_key].queue)
         MAX_QUEUE_DEPTH = self.max_queue_depth  # Dynamic based on client profile
         
-        # If queue is too deep, drop this chunk to prevent latency buildup
-        if current_queue_len >= MAX_QUEUE_DEPTH:
+        # Get adaptive mode status from streams
+        adaptive_mode = getattr(self.streams[first_stream_key], 'adaptive_mode', False)
+        
+        # Smart queue management for ultra-low latency profiles
+        if adaptive_mode and current_queue_len >= MAX_QUEUE_DEPTH:
+            # For ultra-low latency profiles, be more intelligent about drops
+            target_buffer = getattr(self.streams[first_stream_key], 'target_buffer_blocks', 2)
+            
+            if current_queue_len > target_buffer + 1:
+                # Drop oldest chunk instead of newest to maintain responsiveness
+                for stream in self.streams.values():
+                    if len(stream.queue) > 0:
+                        stream.queue.popleft()  # Remove oldest chunk
+                print(f"[SERVER][ADAPTIVE-DROP] dropped oldest chunk, queue reduced to {current_queue_len-1} (seq={seq if seq is not None else '?'})")
+            else:
+                # Still at max, drop this new chunk
+                print(f"[SERVER][DROP][QUEUE-OVERFLOW] dropping seq={seq if seq is not None else '?'} (queue depth={current_queue_len}/{MAX_QUEUE_DEPTH})")
+                return
+        elif current_queue_len >= MAX_QUEUE_DEPTH:
+            # Standard drop for non-adaptive profiles
             print(f"[SERVER][DROP][QUEUE-OVERFLOW] dropping seq={seq if seq is not None else '?'} (queue depth={current_queue_len}/{MAX_QUEUE_DEPTH})")
             return
         
@@ -219,7 +265,9 @@ class SoundSystem():
             status = "PLAYING" if playback_active else "BUFFERING"
             buffer_health = "HEALTHY" if buffer_ms >= min_buffer_ms else "LOW"
             
-            print(f"[SERVER][BUFFER] {status} | {buffer_ms:.1f}ms queued (min: {min_buffer_ms:.1f}ms) | Health: {buffer_health} | Enqueue: {(t1-t0)*1000:.1f}ms")
+            # Add adaptive mode info to logging
+            mode_info = " [ADAPTIVE]" if adaptive_mode else ""
+            print(f"[SERVER][BUFFER] {status} | {buffer_ms:.1f}ms queued (min: {min_buffer_ms:.1f}ms) | Health: {buffer_health}{mode_info} | Enqueue: {(t1-t0)*1000:.1f}ms")
             self._last_logged_buffer = buf_secs
 
     def get_current_buffer_time(self) -> int:

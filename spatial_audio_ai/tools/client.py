@@ -550,6 +550,12 @@ class BlackHoleStereoRelayer:
         min_buffer_chunks = 16  # Increased buffer depth (16 * 21.3ms = ~340ms buffer)
         chunk_duration = self.chunk_size / self.sample_rate
         
+        # Adaptive timing variables for ultra-low latency profiles
+        adaptive_timing = True  # Enable adaptive timing compensation
+        timing_adjustment = 0.0  # Cumulative timing adjustment
+        timing_history = deque(maxlen=100)  # Track recent timing measurements
+        target_send_interval = chunk_duration  # Target time between sends
+        
         try:
             # Wait for initial buffer to fill
             logging.info(f"Building initial buffer ({min_buffer_chunks} chunks)...")
@@ -562,6 +568,7 @@ class BlackHoleStereoRelayer:
             logging.info("Initial buffer ready, starting stream...")
             start_time = time.perf_counter()
             chunk_counter = 0
+            last_send_time = start_time
 
             while not self._stop_event.is_set():
                 # Maintain buffer - only send if we have enough chunks ahead
@@ -576,19 +583,56 @@ class BlackHoleStereoRelayer:
                     # Ensure no clipping that could cause clicks
                     processed_chunk = np.clip(processed_chunk, -1.0, 1.0)
 
+                    # Send the chunk
+                    send_start_time = time.perf_counter()
                     self.sound_streamer.send(processed_chunk)
+                    send_end_time = time.perf_counter()
+                    
                     chunk_counter += 1
 
                     logging.debug(f"Sent chunk {chunk_counter}, buffer size: {len(self.audio_deque)}")
                     
-                    # Schedule next chunk send time (similar to playback.py)
-                    next_time = start_time + chunk_counter * chunk_duration
-                    sleep_time = next_time - time.perf_counter()
+                    # Adaptive timing mechanism
+                    if adaptive_timing and chunk_counter > 1:
+                        # Measure actual time since last send
+                        actual_interval = send_start_time - last_send_time
+                        timing_history.append(actual_interval)
+                        
+                        # Calculate timing error and gradual adjustment
+                        interval_error = actual_interval - target_send_interval
+                        
+                        # Apply exponential smoothing to avoid overreaction
+                        smoothing_factor = 0.05  # 5% adjustment per chunk
+                        timing_adjustment += interval_error * smoothing_factor
+                        
+                        # Limit adjustment to prevent oscillation
+                        max_adjustment = chunk_duration * 0.1  # Max 10% adjustment
+                        timing_adjustment = np.clip(timing_adjustment, -max_adjustment, max_adjustment)
+                        
+                        # Log timing info occasionally
+                        if chunk_counter % 200 == 0:  # Every ~4 seconds
+                            avg_interval = np.mean(list(timing_history)[-50:]) if timing_history else target_send_interval
+                            buffer_health = "LOW" if len(self.audio_deque) < min_buffer_chunks + 5 else "GOOD"
+                            print(f"[TIMING] Avg interval: {avg_interval*1000:.2f}ms (target: {target_send_interval*1000:.2f}ms) | "
+                                  f"Adjustment: {timing_adjustment*1000:.2f}ms | Buffer: {buffer_health}")
+                    
+                    last_send_time = send_start_time
+                    
+                    # Calculate next send time with adaptive adjustment
+                    base_next_time = start_time + chunk_counter * chunk_duration
+                    adjusted_next_time = base_next_time - timing_adjustment
+                    
+                    # Add small random jitter to prevent perfect synchronization issues
+                    jitter = (random.random() - 0.5) * chunk_duration * 0.02  # ±1% jitter
+                    final_next_time = adjusted_next_time + jitter
+                    
+                    sleep_time = final_next_time - time.perf_counter()
                     if sleep_time > 0:
                         time.sleep(sleep_time)
                     elif sleep_time < -chunk_duration:
                         # If we're more than one chunk behind, reset timing
                         start_time = time.perf_counter() - chunk_counter * chunk_duration
+                        timing_adjustment = 0.0  # Reset adjustment on timing reset
                         logging.warning("Timing reset due to large delay")
                 else:
                     # Buffer underrun - wait for more data
