@@ -28,7 +28,7 @@ scene = Scene(spatializer)
 scene.register(sound_object)
 
 print("Attempting to create ZMQ streamer...")
-sound_streamer = SoundNetworkStreamer(profile="stable_zmq")
+sound_streamer = SoundNetworkStreamer(profile="stable")
 print(f"Streamer created. Using ZMQ: {getattr(sound_streamer, 'use_zmq', False)}")
 
 # Implement precise real-time timing

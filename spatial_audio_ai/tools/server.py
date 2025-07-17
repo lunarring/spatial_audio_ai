@@ -123,8 +123,7 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         
                         # Map stable profile to higher buffer depth for reliability
                         depth_map = {
-                            'stable': UDP_BUFFER_DEPTH * 8,  # High buffering for stability
-                            'stable_zmq': UDP_BUFFER_DEPTH * 12  # Even higher for ZMQ
+                            'stable': UDP_BUFFER_DEPTH * 12  # High buffering for ZMQ stability
                         }
                         depth = depth_map.get(profile, UDP_BUFFER_DEPTH * 8)
                         sound_system.set_max_queue_depth(depth)

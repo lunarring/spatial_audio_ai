@@ -30,7 +30,7 @@ CHUNKSIZE = BLOCKSIZE * 4
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
 # Allowed queue-depth profiles (clearer names)
-ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer', 'stable', 'stable_zmq'}
+ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer', 'stable'}
 
 sd.default.blocksize = BLOCKSIZE
 
@@ -75,11 +75,11 @@ class SoundNetworkStreamer:
             raise ValueError(f"Invalid profile '{self.profile}'. Allowed profiles: {sorted(ALLOWED_PROFILES)}")
         
         # Auto-select protocol based on profile
-        self.use_zmq = self.profile in ['stable', 'stable_zmq'] and ZMQ_AVAILABLE and not simulate
+        self.use_zmq = self.profile == 'stable' and ZMQ_AVAILABLE and not simulate
         
         if self.use_zmq:
             # Use ZMQ for stable profiles
-            self.streamer = SoundNetworkStreamerZMQ(host=host, zmq_port=zmq_port, profile=profile or 'stable_zmq')
+            self.streamer = SoundNetworkStreamerZMQ(host=host, zmq_port=zmq_port, profile=profile or 'stable')
         else:
             # Use UDP for low-latency profiles or fallback
             if self.simulate:
@@ -173,7 +173,7 @@ class SoundNetworkStreamer:
 class SoundNetworkStreamerZMQ:
     """ZMQ-based audio streamer for stable connections with high latency tolerance"""
     
-    def __init__(self, host: str = "10.40.49.47", zmq_port: int = 5556, profile: str = "stable_zmq"):
+    def __init__(self, host: str = "10.40.49.47", zmq_port: int = 5556, profile: str = "stable"):
         if not ZMQ_AVAILABLE:
             raise RuntimeError("lunar_tools not available. Cannot use ZMQ streamer.")
         
@@ -355,7 +355,7 @@ class BlackHoleStereoRelayer:
         self.audio_deque = deque(maxlen=self.max_queue_size)
 
         # Initialize the SoundNetworkStreamer (using real connection)
-        self.sound_streamer = SoundNetworkStreamer(profile='stable_zmq')
+        self.sound_streamer = SoundNetworkStreamer(profile='stable')
 
         # Thread control
         self._recording_thread = None

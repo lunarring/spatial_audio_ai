@@ -40,7 +40,7 @@ def test_zmq_streaming():
     
     # Use ZMQ streamer with stable profile
     print("Connecting via ZMQ with stable profile...")
-    sound_streamer = SoundNetworkStreamer(profile="stable_zmq")
+    sound_streamer = SoundNetworkStreamer(profile="stable")
     
     # Stream timing (more relaxed for stable profile)
     chunk_duration = CHUNKSIZE / SAMPLING_RATE
@@ -114,9 +114,9 @@ def test_protocol_comparison():
     scene.register(SO_Playback(sine_wave))
     
     # Test ZMQ (stable)
-    print("\n2. Testing ZMQ streaming (stable_zmq profile)...")
+    print("\n2. Testing ZMQ streaming (stable profile)...")
     try:
-        zmq_streamer = SoundNetworkStreamer(profile="stable_zmq")
+        zmq_streamer = SoundNetworkStreamer(profile="stable")
         start_time = time.perf_counter()
         
         for j, chunk in enumerate(scene.run()):
