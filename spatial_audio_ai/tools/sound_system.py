@@ -41,6 +41,8 @@ class StreamManager():
             print(f"Status: {status}")
         
         if len(self.queue) > 0:
+            # Reset underflow flag when data is available
+            self._underflow_logged = False
             audio_to_play = np.zeros((len(audio := self.queue.popleft()), 2), dtype=np.float32)
             audio_to_play[:, 1 - self.stereo_channel_idx] = audio
             remaining_samples_2 = len(audio) - self.index
@@ -62,6 +64,10 @@ class StreamManager():
         else:
             audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
             outdata[:] = audio_to_play
+            # Log underflow only once when queue is empty
+            if not getattr(self, '_underflow_logged', False):
+                print(f"[SERVER][UNDERFLOW] queue empty – playing silence")
+                self._underflow_logged = True
 
     def start(self) -> None:
         # Configure stream based on latency mode
@@ -124,7 +130,7 @@ class SoundSystem():
         if self.mock_mode:
             self.streams = self._start_mock_streams()
 
-    def add_to_playback_queue(self, data : np.array) -> None:
+    def add_to_playback_queue(self, data : np.array, seq : int = None) -> None:
         assert len(data.shape) == 2, f"data.shape must have 2 elements (data.shape is {data.shape})"
         assert data.shape[1] % BLOCKSIZE == 0, f"Data length must be divisible by BLOCKSIZE ({BLOCKSIZE})"
         "Play an audio file with distinct audi data per channel."
@@ -142,7 +148,7 @@ class SoundSystem():
         
         # If queue is too deep, drop this chunk to prevent latency buildup
         if current_queue_len >= MAX_QUEUE_DEPTH:
-            print(f"[SERVER] DROPPING chunk - queue too deep ({current_queue_len} blocks)")
+            print(f"[SERVER][DROP][QUEUE-OVERFLOW] dropping seq={seq if seq is not None else '?'} (queue depth={current_queue_len}/{MAX_QUEUE_DEPTH})")
             return
         
         for speaker_id, speaker_audio in enumerate(data):

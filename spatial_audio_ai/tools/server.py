@@ -4,6 +4,7 @@ import time as time_module
 import socket
 import sys
 import numpy as np
+import struct  # For parsing custom UDP headers
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
 # import threading # No longer needed for single client
@@ -89,26 +90,51 @@ class SoundServer:
 
             print(f"UDP server started on {self.host}:{self.port}. Press Ctrl+C to stop.")
             clients = set()
+            last_seq_map = {}
 
             try:
                 while True:
                     try:
                         data, addr = s.recvfrom(65536)  # Receive UDP datagram
+                        # New client registration
                         if addr not in clients:
                             clients.add(addr)
-                            logger.info(f"Client joined: {addr}")
+                            last_seq_map[addr] = None
+                            logger.info(f"[SERVER][JOIN] client={addr}")
                             if self.verbose:
-                                print(f"Client joined: {addr}")
-                        # Parse header and payload
-                        header = data[:s.HEADER_SIZE]
-                        magic, shape, dtype = s._unpack_header(header)
-                        payload = data[s.HEADER_SIZE:]
-                        expected = np.prod(shape) * np.dtype(dtype).itemsize
-                        if len(payload) < expected:
-                            logger.warning(f"Incomplete packet from {addr}: {len(payload)}/{expected} bytes")
+                                print(f"[SERVER][JOIN] client={addr}")
+                        # Extract and parse custom header
+                        raw_header = data[:s.HEADER_SIZE]
+                        try:
+                            magic, seq, timestamp, shape0, shape1, dtype_code = struct.unpack('<4sQdIII', raw_header)
+                        except Exception as e:
+                            logger.warning(f"[SERVER][MALFORMED] bad header from {addr}: {e}")
                             continue
+                        # Validate magic
+                        if magic != FastNumpySocket.MAGIC:
+                            logger.warning(f"[SERVER][MALFORMED] invalid magic from {addr}: {magic}")
+                            continue
+                        # Determine shape and dtype
+                        shape = (shape0,) if shape1 == 1 else (shape0, shape1)
+                        dtype = s._code_to_dtype(dtype_code)
+                        # Sequence order checks
+                        last_seq = last_seq_map[addr]
+                        if last_seq is not None:
+                            if seq > last_seq + 1:
+                                lost = seq - last_seq - 1
+                                logger.warning(f"[SERVER][LOSS] client={addr} lost={lost} frames (seq {last_seq+1}-{seq-1})")
+                            elif seq <= last_seq:
+                                logger.warning(f"[SERVER][REORDER] client={addr} seq={seq} <= last_seq={last_seq}")
+                        last_seq_map[addr] = seq
+                        # Validate payload length
+                        payload = data[s.HEADER_SIZE:]
+                        expected = np.prod(shape) * dtype.itemsize
+                        if len(payload) < expected:
+                            logger.warning(f"[SERVER][INCOMPLETE] expected={expected} bytes but got={len(payload)} from {addr}")
+                            continue
+                        # Reconstruct and enqueue
                         frame = np.frombuffer(payload[:expected], dtype=dtype).reshape(shape)
-                        sound_system.add_to_playback_queue(frame)
+                        sound_system.add_to_playback_queue(frame, seq)
                     except socket.timeout:
                         continue
             except KeyboardInterrupt:
