@@ -72,7 +72,6 @@ class SineWaveController:
                 t0 = time.perf_counter()
                 self.sound_streamer.send(chunk)
                 t1 = time.perf_counter()
-                print(f"[CLIENT] pack+send: {t1-t0:.3f}s")
                 chunk_counter += 1
                 
                 # Schedule next chunk send time (precise timing)
@@ -206,7 +205,7 @@ def create_interface():
                 gr.Markdown("### Audio Parameters")
                 
                 freq_slider = gr.Slider(
-                    minimum=50, maximum=2000, value=440, step=1,
+                    minimum=10, maximum=2000, value=440, step=1,
                     label="Frequency (Hz)"
                 )
                 
