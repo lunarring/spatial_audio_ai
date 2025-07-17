@@ -16,7 +16,7 @@ import gradio as gr
 import json
 import uuid
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, ALLOWED_PROFILES
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, CHUNKSIZE, ALLOWED_PROFILES
 
 try:
     import lunar_tools as lt
@@ -24,8 +24,6 @@ try:
 except ImportError:
     ZMQ_AVAILABLE = False
     print("Warning: lunar_tools not available. ZMQ support disabled.")
-
-CHUNKSIZE = BLOCKSIZE * 4
 
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'

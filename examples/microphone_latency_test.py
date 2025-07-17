@@ -18,6 +18,7 @@ import time
 import threading
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
+from spatial_audio_ai.config import BLOCKSIZE
 from collections import deque
 import scipy.signal
 
@@ -132,7 +133,7 @@ class MicrophoneLatencyTester:
                 device=self.recording_device,
                 channels=1,
                 samplerate=self.sample_rate,
-                blocksize=1024,
+                                            blocksize=BLOCKSIZE,
                 callback=self.audio_recording_callback
             )
             self.stream.start()

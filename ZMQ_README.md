@@ -66,7 +66,7 @@ Audio data is sent as JSON messages:
   "audio_data": {
     "seq": 123,
     "timestamp": 1234567890.123,
-    "shape": [13, 1024],
+            "shape": [13, 256],
     "dtype": "float32",
     "data": [[...], [...], ...]
   }

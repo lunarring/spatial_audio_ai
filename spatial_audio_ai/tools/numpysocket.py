@@ -27,7 +27,7 @@ class FastNumpySocket(socket.socket):
             # Disable Nagle's algorithm for low latency
             self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             
-            # Set optimal buffer sizes for audio chunks (~13KB for 13 speakers * 1024 samples * 4 bytes)
+            # Set optimal buffer sizes for audio chunks (~13KB for 13 speakers * 256 samples * 4 bytes)
             self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)  # 64KB receive buffer
             self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)  # 64KB send buffer
             

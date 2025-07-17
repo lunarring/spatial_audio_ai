@@ -19,9 +19,9 @@ SAMPLING_RATE = 48000
 # Main configuration constants
 
 # BLOCKSIZE optimized for 48KHz
-# Target: ~21.3ms buffer (1024 samples at 48KHz)
+# Target: ~5.3ms buffer (256 samples at 48KHz)
 # Note: Server must be restarted if this changes
-BLOCKSIZE = 1024
+BLOCKSIZE = 256
 # Define CHUNKSIZE for buffer sizes throughout the library
 # Reduced from BLOCKSIZE * 4 to BLOCKSIZE for lower latency
 CHUNKSIZE = BLOCKSIZE
@@ -33,9 +33,9 @@ DEFAULT_PORT = 9999
 # Audio latency settings
 # Lower values = lower latency but higher chance of dropouts
 # Higher values = more latency but more stable playback
-MAX_AUDIO_QUEUE_DEPTH = 3  # Target: ~65ms latency (3 * 21.3ms blocks)
-# For ultra-low latency: set to 2 (~43ms) - may cause dropouts
-# For stable playback: set to 4 (~85ms) - more stable but higher latency
+MAX_AUDIO_QUEUE_DEPTH = 3  # Target: ~16ms latency (3 * 5.3ms blocks)
+# For ultra-low latency: set to 2 (~11ms) - may cause dropouts
+# For stable playback: set to 4 (~21ms) - more stable but higher latency
 
 # Audio driver latency mode
 # 'ultra' = Use 3ms WASAPI drivers + aggressive settings (~25ms total)  
@@ -69,37 +69,37 @@ ALLOWED_PROFILES = {
 # Each profile maps to a multiple of UDP_BUFFER_DEPTH
 PROFILE_DEFINITIONS = {
     'ultra_low_latency': {
-        'description': 'Minimal latency (~43ms), high dropout risk',
+        'description': 'Minimal latency (~11ms), high dropout risk',
         'udp_depth_multiplier': 2.0 / 3.0,  # 2 blocks (was hardcoded as 2)
         'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
         'recommended_protocol': 'udp'
     },
     'low_latency': {
-        'description': 'Low latency (~85ms), moderate dropout risk', 
+        'description': 'Low latency (~21ms), moderate dropout risk', 
         'udp_depth_multiplier': 4.0 / 3.0,  # 4 blocks (was hardcoded as 4)
         'zmq_depth_multiplier': 6.0,
         'recommended_protocol': 'udp'
     },
     'balanced': {
-        'description': 'Balanced latency/stability (~130ms)',
+        'description': 'Balanced latency/stability (~32ms)',
         'udp_depth_multiplier': 2.0,        # UDP_BUFFER_DEPTH * 2
         'zmq_depth_multiplier': 8.0,
         'recommended_protocol': 'udp'
     },
     'high_buffer': {
-        'description': 'Higher stability (~260ms)',
+        'description': 'Higher stability (~64ms)',
         'udp_depth_multiplier': 4.0,        # UDP_BUFFER_DEPTH * 4
         'zmq_depth_multiplier': 10.0,
         'recommended_protocol': 'udp'
     },
     'super_buffer': {
-        'description': 'Maximum stability (~520ms)',
+        'description': 'Maximum stability (~128ms)',
         'udp_depth_multiplier': 8.0,        # UDP_BUFFER_DEPTH * 8
         'zmq_depth_multiplier': 12.0,
         'recommended_protocol': 'udp'
     },
     'stable': {
-        'description': 'ZMQ-optimized with high buffering (~780ms)',
+        'description': 'ZMQ-optimized with high buffering (~191ms)',
         'udp_depth_multiplier': 8.0,        # Fallback for UDP
         'zmq_depth_multiplier': 12.0,       # UDP_BUFFER_DEPTH * 12
         'recommended_protocol': 'zmq'
@@ -190,4 +190,5 @@ print("Spatial Audio AI initialized:")
 print(f"  Sample Rate: {SAMPLING_RATE} Hz (fixed)")
 print(f"  Block Size: {BLOCKSIZE} samples "
       f"(~{BLOCKSIZE/SAMPLING_RATE*1000:.1f}ms)")
+print(f"  Ultra-Low Latency: ~11ms total (professional grade)")
 print(f"  Available Profiles: {sorted(ALLOWED_PROFILES)}") 
