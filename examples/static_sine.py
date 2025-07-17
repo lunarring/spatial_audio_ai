@@ -27,7 +27,9 @@ spatializer = Spatializer()
 scene = Scene(spatializer)
 scene.register(sound_object)
 
-sound_streamer = SoundNetworkStreamer(profile="ultra_low_latency")
+print("Attempting to create ZMQ streamer...")
+sound_streamer = SoundNetworkStreamer(profile="stable_zmq")
+print(f"Streamer created. Using ZMQ: {getattr(sound_streamer, 'use_zmq', False)}")
 
 # Implement precise real-time timing
 chunk_duration = CHUNKSIZE / SAMPLING_RATE

@@ -77,22 +77,41 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
     """Handle ZMQ client messages in a separate thread"""
     logger = logging.getLogger("zmq_handler")
     zmq_seq_map = {}
+    message_count = 0
     
     logger.info("ZMQ handler started")
-    if verbose:
-        print("ZMQ handler thread started")
+    print("[ZMQ][HANDLER] 🚀 ZMQ handler thread started and running")
+    print(f"[ZMQ][HANDLER] ZMQ server object: {zmq_server}")
+    print(f"[ZMQ][HANDLER] Verbose mode: {verbose}")
+    
+    loop_count = 0
+    last_log_time = time_module.perf_counter()
     
     while True:
         try:
+            loop_count += 1
+            
             # Check for messages (non-blocking)
             messages = zmq_server.get_messages()
+            
+            # Log every 5 seconds to show the handler is alive
+            current_time = time_module.perf_counter()
+            if current_time - last_log_time > 5.0:
+                print(f"[ZMQ][HANDLER] ❤️ Handler alive - loop_count: {loop_count}, message_count: {message_count}")
+                last_log_time = current_time
             
             if not messages:
                 time_module.sleep(0.001)  # Small sleep to prevent busy waiting
                 continue
+            
+            print(f"[ZMQ][HANDLER] 📨 Received {len(messages)} messages")
                 
             for msg in messages:
                 try:
+                    message_count += 1
+                    print(f"[ZMQ][HANDLER] 🔍 Processing message #{message_count}: {type(msg)}")
+                    print(f"[ZMQ][HANDLER] 🔍 Message keys: {list(msg.keys()) if isinstance(msg, dict) else 'Not a dict'}")
+                    
                     # Handle control messages
                     if 'control' in msg:
                         profile = msg['control'].get('profile', 'stable')
@@ -106,7 +125,7 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         depth = depth_map.get(profile, UDP_BUFFER_DEPTH * 8)
                         sound_system.set_max_queue_depth(depth)
                         
-                        log_msg = f"[ZMQ][PROFILE] client={client_id} profile={profile} -> queue_depth={depth}"
+                        log_msg = f"[ZMQ][PROFILE] ✅ client={client_id} profile={profile} -> queue_depth={depth}"
                         logger.info(log_msg)
                         print(log_msg)
                         continue
@@ -134,19 +153,22 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         
                         # Add to playback queue
                         sound_system.add_to_playback_queue(frame, seq)
+                        print(f"[ZMQ][AUDIO] ✅ Processed audio seq={seq} from client={client_id}, shape={frame.shape}")
                         
                         if verbose and seq % 50 == 0:  # Log occasionally
-                            print(f"[ZMQ] Processed audio seq={seq} from client={client_id}")
+                            print(f"[ZMQ][AUDIO] 📊 Audio stats - seq={seq} from client={client_id}")
                             
                 except Exception as e:
-                    logger.error(f"[ZMQ] Error processing message: {e}")
-                    if verbose:
-                        print(f"[ZMQ] Error processing message: {e}")
+                    logger.error(f"[ZMQ][ERROR] ❌ Error processing message: {e}")
+                    print(f"[ZMQ][ERROR] ❌ Error processing message: {e}")
+                    import traceback
+                    traceback.print_exc()
                         
         except Exception as e:
-            logger.error(f"[ZMQ] Handler error: {e}")
-            if verbose:
-                print(f"[ZMQ] Handler error: {e}")
+            logger.error(f"[ZMQ][ERROR] ❌ Handler error: {e}")
+            print(f"[ZMQ][ERROR] ❌ Handler error: {e}")
+            import traceback
+            traceback.print_exc()
             time_module.sleep(0.1)  # Longer sleep on error
 
 class SoundServer:
@@ -182,18 +204,32 @@ class SoundServer:
         # Initialize ZMQ server if enabled
         if self.enable_zmq:
             try:
+                print(f"[ZMQ][INIT] Attempting to start ZMQ server...")
+                print(f"[ZMQ][INIT] lunar_tools available: {ZMQ_AVAILABLE}")
                 self.zmq_server = lt.ZMQPairEndpoint(is_server=True, ip=self.host, port=str(self.zmq_port))
-                print(f"ZMQ server started on {self.host}:{self.zmq_port}")
+                print(f"[ZMQ][INIT] ✅ ZMQ server created successfully on {self.host}:{self.zmq_port}")
                 
                 # Start ZMQ handler in separate thread
                 zmq_thread = threading.Thread(
                     target=handle_zmq_client, 
                     args=(self.zmq_server, sound_system, self.verbose),
-                    daemon=True
+                    daemon=True,
+                    name="ZMQ-Handler"
                 )
                 zmq_thread.start()
+                print(f"[ZMQ][INIT] ✅ ZMQ handler thread started (thread: {zmq_thread.name})")
+                
+                # Give the thread a moment to start
+                time_module.sleep(0.1)
+                if zmq_thread.is_alive():
+                    print(f"[ZMQ][INIT] ✅ ZMQ handler thread is running")
+                else:
+                    print(f"[ZMQ][INIT] ❌ ZMQ handler thread failed to start")
+                    
             except Exception as e:
-                print(f"Failed to start ZMQ server: {e}")
+                print(f"[ZMQ][INIT] ❌ Failed to start ZMQ server: {e}")
+                import traceback
+                traceback.print_exc()
                 self.enable_zmq = False
 
         # Use UDP socket for streaming with sequence numbers and simple jitter handling

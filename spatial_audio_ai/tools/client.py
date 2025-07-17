@@ -193,9 +193,14 @@ class SoundNetworkStreamerZMQ:
     
     def __enter__(self):
         try:
+            print(f"[ZMQ][CLIENT] Attempting to create ZMQ client endpoint...")
+            print(f"[ZMQ][CLIENT] Host: {self.host}, Port: {self.zmq_port}")
+            print(f"[ZMQ][CLIENT] lunar_tools available: {ZMQ_AVAILABLE}")
+            
             self.zmq_client = lt.ZMQPairEndpoint(is_server=False, ip=self.host, port=str(self.zmq_port))
             self.connected = True
-            print(f"[ZMQ] Connected to server at {self.host}:{self.zmq_port}")
+            print(f"[ZMQ][CLIENT] ✅ Connected to server at {self.host}:{self.zmq_port}")
+            print(f"[ZMQ][CLIENT] ZMQ client object: {self.zmq_client}")
             
             # Send profile control message
             control_msg = {
@@ -204,11 +209,17 @@ class SoundNetworkStreamerZMQ:
                     "profile": self.profile
                 }
             }
+            print(f"[ZMQ][CLIENT] Sending control message: {control_msg}")
             self.zmq_client.send_json(control_msg)
-            print(f"[ZMQ][PROFILE] sent profile={self.profile} client_id={self.client_id}")
+            print(f"[ZMQ][CLIENT] ✅ Profile message sent: profile={self.profile} client_id={self.client_id}")
+            
+            # Small delay to ensure message is sent
+            time.sleep(0.1)
             
         except Exception as e:
-            print(f"[ZMQ] Failed to connect: {e}")
+            print(f"[ZMQ][CLIENT] ❌ Failed to connect: {e}")
+            import traceback
+            traceback.print_exc()
             self.connected = False
             raise
         
