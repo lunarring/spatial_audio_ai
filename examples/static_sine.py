@@ -27,7 +27,7 @@ spatializer = Spatializer()
 scene = Scene(spatializer)
 scene.register(sound_object)
 
-sound_streamer = SoundNetworkStreamer(profile="balanced")
+sound_streamer = SoundNetworkStreamer(profile="ultra_low_latency")
 
 # Implement precise real-time timing
 chunk_duration = CHUNKSIZE / SAMPLING_RATE
