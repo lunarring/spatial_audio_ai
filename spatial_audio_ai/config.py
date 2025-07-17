@@ -61,7 +61,6 @@ ALLOWED_PROFILES = {
     'low_latency',        # Low buffering, some dropout risk
     'balanced',           # Balanced latency/stability
     'high_buffer',        # Higher buffering, more stable
-    'super_buffer',       # Very high buffering, most stable
     'stable'              # ZMQ-optimized profile with high buffering
 }
 
@@ -90,12 +89,6 @@ PROFILE_DEFINITIONS = {
         'description': 'Higher stability (~64ms)',
         'udp_depth_multiplier': 4.0,        # UDP_BUFFER_DEPTH * 4
         'zmq_depth_multiplier': 10.0,
-        'recommended_protocol': 'udp'
-    },
-    'super_buffer': {
-        'description': 'Maximum stability (~128ms)',
-        'udp_depth_multiplier': 8.0,        # UDP_BUFFER_DEPTH * 8
-        'zmq_depth_multiplier': 12.0,
         'recommended_protocol': 'udp'
     },
     'stable': {

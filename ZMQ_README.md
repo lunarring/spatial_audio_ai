@@ -13,15 +13,13 @@ The system now supports dual-protocol audio streaming:
 The protocol is automatically selected based on the profile:
 
 ### UDP Profiles (Low Latency)
-- `ultra_low_latency`: ~25ms total latency
-- `low_latency`: ~35ms total latency  
-- `balanced`: ~65ms total latency
-- `high_buffer`: ~130ms total latency
-- `super_buffer`: ~260ms total latency
+- `ultra_low_latency`: ~11ms total latency
+- `low_latency`: ~21ms total latency  
+- `balanced`: ~32ms total latency
+- `high_buffer`: ~64ms total latency
 
 ### ZMQ Profiles (Stable/Reliable)
-- `stable`: JSON-based transmission with high buffer depth
-- `stable_zmq`: Optimized ZMQ profile with maximum reliability
+- `stable`: ~191ms total latency - JSON-based transmission with high buffer depth
 
 ## Usage
 
