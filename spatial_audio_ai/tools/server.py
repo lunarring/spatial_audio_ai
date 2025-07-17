@@ -165,6 +165,8 @@ class SoundServer:
                         try:
                             ack_packet = ACK_MAGIC + struct.pack('<I', seq)
                             s.sendto(ack_packet, addr)
+                            # Debug ACK sent
+                            print(f"[SERVER][ACK_SENT] client={addr} seq={seq}")
                         except Exception as e:
                             logger.warning(f"[SERVER][ACK_FAIL] client={addr} seq={seq} err={e}")
                     except socket.timeout:

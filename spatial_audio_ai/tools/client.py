@@ -136,12 +136,13 @@ class SoundNetworkStreamer:
                     while True:
                         with self.lock:
                             in_flight = self.last_sent_seq - self.last_ack_seq
+                        # Debug pacing info
+                        print(f"[CLIENT][PACING] in_flight={in_flight} window_size={self.window_size}")
                         if in_flight < self.window_size:
                             break
                         time.sleep(0.001)
                 try:
                     self.socket.sendall(data)
-                    # print(f"Sent data with shape {data.shape} to the server.")
                     # Track unacked frame for ARQ
                     seq = self.socket._seq - 1
                     if not self.simulate:
@@ -149,6 +150,8 @@ class SoundNetworkStreamer:
                         with self.lock:
                             self.unacked[seq] = (send_time, data)
                             self.last_sent_seq = seq
+                    # Debug send info
+                    print(f"[CLIENT][SEND] seq={seq} unacked_count={len(self.unacked)}")
                 except Exception as e:
                     print(f"Failed to send data: {e}")
             else:
@@ -186,6 +189,8 @@ class SoundNetworkStreamer:
                 continue
             if ack_data.startswith(ACK_MAGIC):
                 seq = struct.unpack('<I', ack_data[len(ACK_MAGIC):])[0]
+                # Debug ack info
+                print(f"[CLIENT][ACK] received seq={seq}")
                 with self.lock:
                     if seq > self.last_ack_seq:
                         self.last_ack_seq = seq
