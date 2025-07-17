@@ -173,9 +173,9 @@ class SoundSystem():
         
         self._enqueue_counter += 1
         
-        # Log only when buffer time changes significantly OR every 100 enqueues (≈2 seconds)
+        # Log only when buffer time changes significantly OR every 500 enqueues (≈10 seconds)
         buffer_change = abs(buf_secs - self._last_logged_buffer)
-        if buffer_change > 0.05 or self._enqueue_counter % 100 == 0:  # 50ms buffer change or every 2s
+        if buffer_change > 0.1 or self._enqueue_counter % 500 == 0:  # 100ms buffer change or every 10s
             print(f"[SERVER] Buffer: {buf_secs:.3f}s (enqueue: {t1-t0:.3f}s)")
             self._last_logged_buffer = buf_secs
 
