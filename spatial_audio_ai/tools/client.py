@@ -330,8 +330,8 @@ class BlackHoleStereoRelayer:
         
         # Calculate optimal chunk size based on sample rate if not provided
         if chunk_size is None:
-            # Default to 10x BLOCKSIZE for 48KHz (optimal for real-time streaming)
-            chunk_size = BLOCKSIZE * 10
+            # Use CHUNKSIZE to match what the system expects (21.3ms chunks)
+            chunk_size = CHUNKSIZE
         self.chunk_size = chunk_size
         self.device_name = device_name
         self.max_queue_size = max_queue_size
@@ -343,6 +343,9 @@ class BlackHoleStereoRelayer:
         
         # Solo states for each channel (13 channels)
         self.channel_solo = [False] * 13
+        
+        # Previous volume states for smoothing (prevents clicks)
+        self._prev_effective_volumes = [1.0] * 13
 
         # Validate mapping scheme
         if self.mapping_scheme not in ['stereo', 'alternating', 'mono']:
@@ -367,6 +370,7 @@ class BlackHoleStereoRelayer:
         self.logger.info(f"  Chunk Size: {self.chunk_size} samples (~{self.chunk_size/self.sample_rate*1000:.1f}ms)")
         self.logger.info(f"  BLOCKSIZE: {BLOCKSIZE} samples (~{BLOCKSIZE/self.sample_rate*1000:.1f}ms)")
         self.logger.info(f"  Device: {self.device_name}")
+        self.logger.info(f"  Fixed: Using CHUNKSIZE-aligned chunks for smooth streaming")
 
     def get_device_index_by_name(self, device_name):
         """
@@ -463,15 +467,22 @@ class BlackHoleStereoRelayer:
         # 13th channel is always the sum of left and right (or mono signal for mono mode)
         mapped[:, 12] = (left + right) / 2
 
-        # Apply individual channel volumes
+        # Apply individual channel volumes and solo logic with smoothing
         for i in range(13):
-            mapped[:, i] *= self.channel_volumes[i]
-
-        # Apply solo logic - if any channel is soloed, mute all non-soloed channels
-        if any(self.channel_solo):
-            for i in range(13):
-                if not self.channel_solo[i]:
-                    mapped[:, i] = 0.0
+            # Calculate target effective volume
+            if any(self.channel_solo):
+                # Solo mode: only soloed channels get volume
+                target_volume = self.channel_volumes[i] if self.channel_solo[i] else 0.0
+            else:
+                # Normal mode: all channels get their individual volume
+                target_volume = self.channel_volumes[i]
+            
+            # Smooth volume transitions to prevent clicks (simple linear interpolation)
+            smoothing_factor = 0.1  # Adjust for smoother/faster transitions
+            effective_volume = (1 - smoothing_factor) * self._prev_effective_volumes[i] + smoothing_factor * target_volume
+            self._prev_effective_volumes[i] = effective_volume
+            
+            mapped[:, i] *= effective_volume
 
         return mapped
 
@@ -499,7 +510,7 @@ class BlackHoleStereoRelayer:
         self._recording_thread.start()
 
         # Pre-buffer chunks for smooth playback
-        min_buffer_chunks = 2  # Keep at least 2 chunks ahead
+        min_buffer_chunks = 8  # Increased for smaller chunks (8 * 21.3ms = ~170ms buffer)
         chunk_duration = self.chunk_size / self.sample_rate
         
         try:
@@ -524,6 +535,9 @@ class BlackHoleStereoRelayer:
                         latest_chunk = np.array(latest_chunk)
 
                     processed_chunk = latest_chunk.T * self.stream_volume
+                    
+                    # Ensure no clipping that could cause clicks
+                    processed_chunk = np.clip(processed_chunk, -1.0, 1.0)
 
                     self.sound_streamer.send(processed_chunk)
                     chunk_counter += 1
@@ -542,7 +556,7 @@ class BlackHoleStereoRelayer:
                 else:
                     # Buffer underrun - wait for more data
                     logging.debug(f"Buffer underrun, waiting... (buffer size: {len(self.audio_deque)})")
-                    time.sleep(0.005)  # Shorter sleep when waiting for buffer
+                    time.sleep(0.001)  # Very short sleep when waiting for buffer
                     
         except KeyboardInterrupt:
             logging.info("\nRecording stopped by user.")
