@@ -5,10 +5,18 @@ import socket
 import sys
 import numpy as np
 import struct  # For parsing custom UDP headers
+import threading
+import json
 from spatial_audio_ai.config import UDP_BUFFER_DEPTH
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
-# import threading # No longer needed for single client
+
+try:
+    import lunar_tools as lt
+    ZMQ_AVAILABLE = True
+except ImportError:
+    ZMQ_AVAILABLE = False
+    print("Warning: lunar_tools not available. ZMQ support disabled.")
 
 # Create logger
 logger = logging.getLogger("sound server")
@@ -65,6 +73,82 @@ def handle_client(conn, addr, sound_system, verbose=False):
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
 
+def handle_zmq_client(zmq_server, sound_system, verbose=False):
+    """Handle ZMQ client messages in a separate thread"""
+    logger = logging.getLogger("zmq_handler")
+    zmq_seq_map = {}
+    
+    logger.info("ZMQ handler started")
+    if verbose:
+        print("ZMQ handler thread started")
+    
+    while True:
+        try:
+            # Check for messages (non-blocking)
+            messages = zmq_server.get_messages()
+            
+            if not messages:
+                time_module.sleep(0.001)  # Small sleep to prevent busy waiting
+                continue
+                
+            for msg in messages:
+                try:
+                    # Handle control messages
+                    if 'control' in msg:
+                        profile = msg['control'].get('profile', 'stable')
+                        client_id = msg.get('client_id', 'unknown')
+                        
+                        # Map stable profile to higher buffer depth for reliability
+                        depth_map = {
+                            'stable': UDP_BUFFER_DEPTH * 8,  # High buffering for stability
+                            'stable_zmq': UDP_BUFFER_DEPTH * 12  # Even higher for ZMQ
+                        }
+                        depth = depth_map.get(profile, UDP_BUFFER_DEPTH * 8)
+                        sound_system.set_max_queue_depth(depth)
+                        
+                        log_msg = f"[ZMQ][PROFILE] client={client_id} profile={profile} -> queue_depth={depth}"
+                        logger.info(log_msg)
+                        print(log_msg)
+                        continue
+                    
+                    # Handle audio data messages
+                    if 'audio_data' in msg:
+                        audio_info = msg['audio_data']
+                        client_id = msg.get('client_id', 'unknown')
+                        seq = audio_info.get('seq', 0)
+                        timestamp = audio_info.get('timestamp', time_module.perf_counter())
+                        
+                        # Reconstruct numpy array from JSON
+                        array_data = np.array(audio_info['data'], dtype=audio_info['dtype'])
+                        frame = array_data.reshape(audio_info['shape'])
+                        
+                        # Sequence checking (similar to UDP)
+                        last_seq = zmq_seq_map.get(client_id)
+                        if last_seq is not None:
+                            if seq > last_seq + 1:
+                                lost = seq - last_seq - 1
+                                logger.warning(f"[ZMQ][LOSS] client={client_id} lost={lost} frames (seq {last_seq+1}-{seq-1})")
+                            elif seq <= last_seq:
+                                logger.warning(f"[ZMQ][REORDER] client={client_id} seq={seq} <= last_seq={last_seq}")
+                        zmq_seq_map[client_id] = seq
+                        
+                        # Add to playback queue
+                        sound_system.add_to_playback_queue(frame, seq)
+                        
+                        if verbose and seq % 50 == 0:  # Log occasionally
+                            print(f"[ZMQ] Processed audio seq={seq} from client={client_id}")
+                            
+                except Exception as e:
+                    logger.error(f"[ZMQ] Error processing message: {e}")
+                    if verbose:
+                        print(f"[ZMQ] Error processing message: {e}")
+                        
+        except Exception as e:
+            logger.error(f"[ZMQ] Handler error: {e}")
+            if verbose:
+                print(f"[ZMQ] Handler error: {e}")
+            time_module.sleep(0.1)  # Longer sleep on error
+
 class SoundServer:
     """Sound server class that can be used to start a server instance"""
     
@@ -72,27 +156,56 @@ class SoundServer:
         self, 
         host="10.40.49.47", 
         port=9999, 
+        zmq_port=5556,
         log_level=logging.WARNING,
         mock_mode=False,
-        verbose=False
+        verbose=False,
+        enable_zmq=True
     ):
         self.host = host
         self.port = port
+        self.zmq_port = zmq_port
         self.log_level = log_level
         self.mock_mode = mock_mode
         self.verbose = verbose
+        self.enable_zmq = enable_zmq and ZMQ_AVAILABLE
+        self.zmq_server = None
+        self.zmq_clients = set()
+        self.zmq_seq_map = {}
+        self._stop_event = threading.Event()
     
     def start(self):
-        """Start the sound server"""
+        """Start the dual-protocol sound server (UDP + ZMQ)"""
         # Only initialize SoundSystem when server is started
         sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode)
+
+        # Initialize ZMQ server if enabled
+        if self.enable_zmq:
+            try:
+                self.zmq_server = lt.ZMQPairEndpoint(is_server=True, ip=self.host, port=str(self.zmq_port))
+                print(f"ZMQ server started on {self.host}:{self.zmq_port}")
+                
+                # Start ZMQ handler in separate thread
+                zmq_thread = threading.Thread(
+                    target=handle_zmq_client, 
+                    args=(self.zmq_server, sound_system, self.verbose),
+                    daemon=True
+                )
+                zmq_thread.start()
+            except Exception as e:
+                print(f"Failed to start ZMQ server: {e}")
+                self.enable_zmq = False
 
         # Use UDP socket for streaming with sequence numbers and simple jitter handling
         with FastNumpySocket(type=socket.SOCK_DGRAM) as s:
             s.bind((self.host, self.port))
             s.settimeout(1.0)  # Timeout to allow graceful shutdown
 
-            print(f"UDP server started on {self.host}:{self.port}. Press Ctrl+C to stop.")
+            protocols = ["UDP"]
+            if self.enable_zmq:
+                protocols.append("ZMQ")
+            print(f"Server started with {'/'.join(protocols)} on {self.host}:{self.port}" + 
+                  (f" (ZMQ: {self.zmq_port})" if self.enable_zmq else "") + ". Press Ctrl+C to stop.")
             clients = set()
             last_seq_map = {}
 
@@ -178,11 +291,20 @@ def main():
     parser = argparse.ArgumentParser(description='Start the spatial audio server')
     parser.add_argument('--mock', action='store_true', help='Run in mock mode (no hardware required)')
     parser.add_argument('--host', default="10.40.49.47", help='Host address')
-    parser.add_argument('--port', type=int, default=9999, help='Port number')
+    parser.add_argument('--port', type=int, default=9999, help='UDP port number')
+    parser.add_argument('--zmq-port', type=int, default=5556, help='ZMQ port number (default: 5556)')
+    parser.add_argument('--no-zmq', action='store_true', help='Disable ZMQ support (UDP only)')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output for client connections')
     args = parser.parse_args()
     
-    server = SoundServer(host=args.host, port=args.port, mock_mode=args.mock, verbose=args.verbose)
+    server = SoundServer(
+        host=args.host, 
+        port=args.port, 
+        zmq_port=args.zmq_port,
+        mock_mode=args.mock, 
+        verbose=args.verbose,
+        enable_zmq=not args.no_zmq
+    )
     server.start()
 
 

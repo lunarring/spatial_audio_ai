@@ -14,7 +14,8 @@ from spatial_audio_ai.tools.sound_objects import (
     SO_PlaybackMultiHarmonic
 )
 from spatial_audio_ai.tools.client import (
-    SoundNetworkStreamer
+    SoundNetworkStreamer,
+    SoundNetworkStreamerZMQ
 )
 from spatial_audio_ai.config import (
     get_sample_rate,
@@ -31,6 +32,7 @@ __all__ = [
     'SO_PlaybackSine',
     'SO_PlaybackMultiHarmonic',
     'SoundNetworkStreamer',
+    'SoundNetworkStreamerZMQ',
     'get_sample_rate',
     'set_sample_rate',
     'SAMPLING_RATE',

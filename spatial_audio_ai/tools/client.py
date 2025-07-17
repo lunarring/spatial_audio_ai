@@ -13,15 +13,24 @@ import threading
 import logging
 import socket  # Add socket import for UDP support
 import gradio as gr
+import json
+import uuid
 from spatial_audio_ai.tools.tools import generate_random_noise
 from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
+
+try:
+    import lunar_tools as lt
+    ZMQ_AVAILABLE = True
+except ImportError:
+    ZMQ_AVAILABLE = False
+    print("Warning: lunar_tools not available. ZMQ support disabled.")
 
 CHUNKSIZE = BLOCKSIZE * 4
 
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
 # Allowed queue-depth profiles (clearer names)
-ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer'}
+ALLOWED_PROFILES = {'ultra_low_latency', 'low_latency', 'balanced', 'high_buffer', 'super_buffer', 'stable', 'stable_zmq'}
 
 sd.default.blocksize = BLOCKSIZE
 
@@ -54,81 +63,223 @@ class SimulatedSocket:
 
 
 class SoundNetworkStreamer:
-    def __init__(self, host: str = "10.40.49.47", port: int = 9999, simulate: bool = False, profile: str = None):
+    def __init__(self, host: str = "10.40.49.47", port: int = 9999, zmq_port: int = 5556, simulate: bool = False, profile: str = None):
         self.host = host
         self.port = port
+        self.zmq_port = zmq_port
         self.simulate = simulate
         self.profile = profile
+        
         # Validate profile selection
         if self.profile is not None and self.profile not in ALLOWED_PROFILES:
             raise ValueError(f"Invalid profile '{self.profile}'. Allowed profiles: {sorted(ALLOWED_PROFILES)}")
-        if self.simulate:
-            self.socket = SimulatedSocket()
+        
+        # Auto-select protocol based on profile
+        self.use_zmq = self.profile in ['stable', 'stable_zmq'] and ZMQ_AVAILABLE and not simulate
+        
+        if self.use_zmq:
+            # Use ZMQ for stable profiles
+            self.streamer = SoundNetworkStreamerZMQ(host=host, zmq_port=zmq_port, profile=profile or 'stable_zmq')
         else:
-            self.socket = FastNumpySocket(type=socket.SOCK_DGRAM)  # Use UDP for streaming
-        self.socket_connected = False
-        self.lock = threading.Lock()  # To ensure thread safety if needed
-        self.__enter__()
+            # Use UDP for low-latency profiles or fallback
+            if self.simulate:
+                self.socket = SimulatedSocket()
+            else:
+                self.socket = FastNumpySocket(type=socket.SOCK_DGRAM)  # Use UDP for streaming
+            self.socket_connected = False
+            self.lock = threading.Lock()  # To ensure thread safety if needed
+            self.__enter__()
 
     def __enter__(self):
-        self.socket.connect((self.host, self.port))
-        self.socket_connected = True
-        if self.simulate:
-            print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
+        if self.use_zmq:
+            # ZMQ streamer handles its own connection
+            return self
         else:
-            print(f"Connected to server at {self.host}:{self.port}")
-        # Send profile control on connect if provided
-        if self.profile:
-            try:
-                ctrl = CONTROL_MAGIC + self.profile.encode()
-                self.socket.send(ctrl)
-                print(f"[CLIENT][PROFILE] sent profile={self.profile}")
-            except Exception as e:
-                print(f"[CLIENT][PROFILE] failed to send profile: {e}")
-        return self
+            # UDP connection logic
+            self.socket.connect((self.host, self.port))
+            self.socket_connected = True
+            if self.simulate:
+                print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
+            else:
+                print(f"[UDP] Connected to server at {self.host}:{self.port}")
+            # Send profile control on connect if provided
+            if self.profile:
+                try:
+                    ctrl = CONTROL_MAGIC + self.profile.encode()
+                    self.socket.send(ctrl)
+                    print(f"[UDP][PROFILE] sent profile={self.profile}")
+                except Exception as e:
+                    print(f"[UDP][PROFILE] failed to send profile: {e}")
+            return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
     def close(self):
-        if self.socket_connected:
-            self.socket.close()
-            self.socket_connected = False
-            print("Connection closed.")
+        if self.use_zmq:
+            self.streamer.close()
+        else:
+            if self.socket_connected:
+                self.socket.close()
+                self.socket_connected = False
+                print("[UDP] Connection closed.")
 
     def send(self, data: np.ndarray):
-        if data.ndim == 2:
-            if data.shape[1] % BLOCKSIZE == 0:
-                try:
-                    self.socket.sendall(data)
-                    # print(f"Sent data with shape {data.shape} to the server.")
-                except Exception as e:
-                    print(f"Failed to send data: {e}")
-            else:
-                print(f"Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
+        if self.use_zmq:
+            self.streamer.send(data)
         else:
-            print("Data must be a 2-dimensional numpy array")
+            if data.ndim == 2:
+                if data.shape[1] % BLOCKSIZE == 0:
+                    try:
+                        self.socket.sendall(data)
+                        # print(f"Sent data with shape {data.shape} to the server.")
+                    except Exception as e:
+                        print(f"[UDP] Failed to send data: {e}")
+                else:
+                    print(f"[UDP] Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
+            else:
+                print("[UDP] Data must be a 2-dimensional numpy array")
 
     def receive(self) -> np.ndarray:
-        try:
-            response = self.socket.recv()
-            if response is not None:
-                print(f"Received data from server: {response}")
-            else:
-                print("No data received. The connection might be closed.")
-            return response
-        except Exception as e:
-            print(f"Failed to receive data: {e}")
-            return None
+        if self.use_zmq:
+            return self.streamer.receive()
+        else:
+            try:
+                response = self.socket.recv()
+                if response is not None:
+                    print(f"[UDP] Received data from server: {response}")
+                else:
+                    print("[UDP] No data received. The connection might be closed.")
+                return response
+            except Exception as e:
+                print(f"[UDP] Failed to receive data: {e}")
+                return None
 
     def send_and_receive(self, data: np.ndarray) -> np.ndarray:
         """
         Sends data to the server and waits to receive a response.
         """
-        with self.lock:
+        if self.use_zmq:
             self.send(data)
-            print("waiting to receive...")
+            print("[ZMQ] waiting to receive...")
             return self.receive()
+        else:
+            with self.lock:
+                self.send(data)
+                print("[UDP] waiting to receive...")
+                return self.receive()
+
+
+class SoundNetworkStreamerZMQ:
+    """ZMQ-based audio streamer for stable connections with high latency tolerance"""
+    
+    def __init__(self, host: str = "10.40.49.47", zmq_port: int = 5556, profile: str = "stable_zmq"):
+        if not ZMQ_AVAILABLE:
+            raise RuntimeError("lunar_tools not available. Cannot use ZMQ streamer.")
+        
+        self.host = host
+        self.zmq_port = zmq_port
+        self.profile = profile
+        self.client_id = str(uuid.uuid4())[:8]  # Short unique ID
+        self._seq = 0
+        self.zmq_client = None
+        self.connected = False
+        
+        # Validate profile
+        if self.profile not in ALLOWED_PROFILES:
+            raise ValueError(f"Invalid profile '{self.profile}'. Allowed profiles: {sorted(ALLOWED_PROFILES)}")
+        
+        self.__enter__()
+    
+    def __enter__(self):
+        try:
+            self.zmq_client = lt.ZMQPairEndpoint(is_server=False, ip=self.host, port=str(self.zmq_port))
+            self.connected = True
+            print(f"[ZMQ] Connected to server at {self.host}:{self.zmq_port}")
+            
+            # Send profile control message
+            control_msg = {
+                "client_id": self.client_id,
+                "control": {
+                    "profile": self.profile
+                }
+            }
+            self.zmq_client.send_json(control_msg)
+            print(f"[ZMQ][PROFILE] sent profile={self.profile} client_id={self.client_id}")
+            
+        except Exception as e:
+            print(f"[ZMQ] Failed to connect: {e}")
+            self.connected = False
+            raise
+        
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+    
+    def close(self):
+        if self.connected and self.zmq_client:
+            self.zmq_client = None
+            self.connected = False
+            print(f"[ZMQ] Connection closed for client {self.client_id}")
+    
+    def send(self, data: np.ndarray):
+        """Send numpy array via ZMQ using JSON format"""
+        if not self.connected:
+            print("[ZMQ] Not connected - cannot send data")
+            return
+        
+        if data.ndim != 2:
+            print("[ZMQ] Data must be a 2-dimensional numpy array")
+            return
+        
+        if data.shape[1] % BLOCKSIZE != 0:
+            print(f"[ZMQ] Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
+            return
+        
+        try:
+            # Prepare audio data message
+            audio_msg = {
+                "client_id": self.client_id,
+                "audio_data": {
+                    "seq": self._seq,
+                    "timestamp": time.perf_counter(),
+                    "shape": list(data.shape),
+                    "dtype": str(data.dtype),
+                    "data": data.tolist()  # Convert numpy array to list for JSON
+                }
+            }
+            
+            # Send via ZMQ
+            self.zmq_client.send_json(audio_msg)
+            self._seq += 1
+            
+            # Log occasionally for debugging
+            if self._seq % 50 == 0:
+                print(f"[ZMQ] Sent audio seq={self._seq} shape={data.shape}")
+                
+        except Exception as e:
+            print(f"[ZMQ] Failed to send data: {e}")
+    
+    def receive(self) -> np.ndarray:
+        """Receive data from server (if server sends responses)"""
+        if not self.connected:
+            print("[ZMQ] Not connected - cannot receive data")
+            return None
+        
+        try:
+            messages = self.zmq_client.get_messages()
+            if messages:
+                # Return the latest message's audio data if available
+                for msg in messages:
+                    if 'audio_data' in msg:
+                        audio_info = msg['audio_data']
+                        array_data = np.array(audio_info['data'], dtype=audio_info['dtype'])
+                        return array_data.reshape(audio_info['shape'])
+            return None
+        except Exception as e:
+            print(f"[ZMQ] Failed to receive data: {e}")
+            return None
 
 
 class BlackHoleStereoRelayer:
