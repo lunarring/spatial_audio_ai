@@ -119,6 +119,13 @@ class SoundServer:
                             if self.verbose:
                                 print(f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}")
                             continue
+                        # New audio client registration when no control packet
+                        if addr not in clients:
+                            clients.add(addr)
+                            last_seq_map[addr] = None
+                            logger.info(f"[SERVER][JOIN] client={addr}")
+                            if self.verbose:
+                                print(f"[SERVER][JOIN] client={addr}")
                         # Extract and parse custom header
                         raw_header = data[:s.HEADER_SIZE]
                         try:
