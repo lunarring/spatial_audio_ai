@@ -19,9 +19,9 @@ SAMPLING_RATE = 48000
 # Main configuration constants
 
 # BLOCKSIZE optimized for 48KHz
-# Target: ~5.3ms buffer (256 samples at 48KHz)
+# Target: ~2.7ms buffer (128 samples at 48KHz) - Ultra-low latency mode
 # Note: Server must be restarted if this changes
-BLOCKSIZE = 256
+BLOCKSIZE = 128
 # Define CHUNKSIZE for buffer sizes throughout the library
 # Reduced from BLOCKSIZE * 4 to BLOCKSIZE for lower latency
 CHUNKSIZE = BLOCKSIZE
@@ -69,46 +69,46 @@ ALLOWED_PROFILES = {
 # Each profile maps to a multiple of UDP_BUFFER_DEPTH
 PROFILE_DEFINITIONS = {
     'experimental_ultra_low': {
-        'description': 'EXPERIMENTAL: Absolute minimal latency (~11ms), very high dropout risk',
+        'description': 'EXPERIMENTAL: Absolute minimal latency (~5.4ms), very high dropout risk',
         'udp_depth_multiplier': 2.0 / 3.0,  # 2 blocks - original ultra_low_latency setting
         'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
         'recommended_protocol': 'udp',
-        'min_buffer_blocks': 2,              # Start playback after 2 blocks (~11ms)
+        'min_buffer_blocks': 2,              # Start playback after 2 blocks (~5.4ms)
     },
     'ultra_low_latency': {
-        'description': 'Low latency (~21ms), improved stability',
-        'udp_depth_multiplier': 4.0 / 3.0,   # 4 blocks (was 1.0 = 3 blocks)  
+        'description': 'Ultra-low latency (~8.1ms), reduced dropout risk',
+        'udp_depth_multiplier': 1.0,         # 3 blocks (~8.1ms total buffer)
         'zmq_depth_multiplier': 4.0,        # ZMQ needs more buffering
         'recommended_protocol': 'udp',
-        'min_buffer_blocks': 3,              # Start playback after 3 blocks (~16ms)
+        'min_buffer_blocks': 2,              # Start playback after 2 blocks (~5.4ms)
     },
     'low_latency': {
-        'description': 'Low latency (~21ms), moderate dropout risk', 
-        'udp_depth_multiplier': 4.0 / 3.0,  # 4 blocks (was hardcoded as 4)
+        'description': 'Low latency (~10.8ms), improved stability', 
+        'udp_depth_multiplier': 4.0 / 3.0,  # 4 blocks (~10.8ms)
         'zmq_depth_multiplier': 6.0,
         'recommended_protocol': 'udp',
-        'min_buffer_blocks': 4,              # Start playback after 4 blocks (~21ms)
+        'min_buffer_blocks': 3,              # Start playback after 3 blocks (~8.1ms)
     },
     'balanced': {
-        'description': 'Balanced latency/stability (~32ms)',
+        'description': 'Balanced latency/stability (~16.2ms)',
         'udp_depth_multiplier': 2.0,        # UDP_BUFFER_DEPTH * 2
         'zmq_depth_multiplier': 8.0,
         'recommended_protocol': 'udp',
-        'min_buffer_blocks': 6,              # Start playback after 6 blocks (~32ms)
+        'min_buffer_blocks': 4,              # Start playback after 4 blocks (~10.8ms)
     },
     'high_buffer': {
-        'description': 'Higher stability (~64ms)',
+        'description': 'Higher stability (~32.4ms)',
         'udp_depth_multiplier': 4.0,        # UDP_BUFFER_DEPTH * 4
         'zmq_depth_multiplier': 10.0,
         'recommended_protocol': 'udp',
-        'min_buffer_blocks': 12,             # Start playback after 12 blocks (~64ms)
+        'min_buffer_blocks': 8,              # Start playback after 8 blocks (~21.6ms)
     },
     'stable': {
-        'description': 'ZMQ-optimized with high buffering (~191ms)',
+        'description': 'ZMQ-optimized with high buffering (~97.2ms)',
         'udp_depth_multiplier': 8.0,        # Fallback for UDP
         'zmq_depth_multiplier': 12.0,       # UDP_BUFFER_DEPTH * 12
         'recommended_protocol': 'zmq',
-        'min_buffer_blocks': 16,             # Start playback after 16 blocks (~85ms) - WiFi-safe
+        'min_buffer_blocks': 12,             # Start playback after 12 blocks (~32.4ms) - WiFi-safe
     }
 }
 
@@ -218,5 +218,5 @@ print("Spatial Audio AI initialized:")
 print(f"  Sample Rate: {SAMPLING_RATE} Hz (fixed)")
 print(f"  Block Size: {BLOCKSIZE} samples "
       f"(~{BLOCKSIZE/SAMPLING_RATE*1000:.1f}ms)")
-print(f"  Ultra-Low Latency: ~11ms total (professional grade)")
+print(f"  Ultra-Low Latency: ~8ms total (professional grade)")
 print(f"  Available Profiles: {sorted(ALLOWED_PROFILES)}") 
