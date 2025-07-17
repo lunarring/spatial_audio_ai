@@ -49,10 +49,11 @@ class SimulatedSocket:
 
 
 class SoundNetworkStreamer:
-    def __init__(self, host: str = "10.40.49.47", port: int = 9999, simulate: bool = False):
+    def __init__(self, host: str = "10.40.49.47", port: int = 9999, simulate: bool = False, profile: str = None):
         self.host = host
         self.port = port
         self.simulate = simulate
+        self.profile = profile
         if self.simulate:
             self.socket = SimulatedSocket()
         else:
@@ -68,6 +69,14 @@ class SoundNetworkStreamer:
             print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
         else:
             print(f"Connected to server at {self.host}:{self.port}")
+        # Send profile control on connect if provided
+        if self.profile:
+            try:
+                ctrl = CONTROL_MAGIC + self.profile.encode()
+                self.socket.send(ctrl)
+                print(f"[CLIENT][PROFILE] sent profile={self.profile}")
+            except Exception as e:
+                print(f"[CLIENT][PROFILE] failed to send profile: {e}")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

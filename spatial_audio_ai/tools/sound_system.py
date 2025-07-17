@@ -9,7 +9,7 @@ import numpy as np
 import sounddevice as sd
 import argparse
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS, MAX_AUDIO_QUEUE_DEPTH, AUDIO_LATENCY_MODE
+from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, N_SPEAKERS, MAX_AUDIO_QUEUE_DEPTH, AUDIO_LATENCY_MODE, UDP_BUFFER_DEPTH
 
 sd.default.blocksize = BLOCKSIZE
 
@@ -117,6 +117,8 @@ class SoundSystem():
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(level=log_level)
         self.mock_mode = mock_mode
+        # Dynamic max queue depth for UDP profiles
+        self.max_queue_depth = UDP_BUFFER_DEPTH
         
         if not mock_mode:
             try:
@@ -144,7 +146,7 @@ class SoundSystem():
         # Check queue depth and implement adaptive buffering
         first_stream_key = next(iter(self.streams))
         current_queue_len = len(self.streams[first_stream_key].queue)
-        MAX_QUEUE_DEPTH = MAX_AUDIO_QUEUE_DEPTH  # Target: keep latency under ~65ms (3 * 21.3ms)
+        MAX_QUEUE_DEPTH = self.max_queue_depth  # Dynamic based on client profile
         
         # If queue is too deep, drop this chunk to prevent latency buildup
         if current_queue_len >= MAX_QUEUE_DEPTH:
@@ -185,6 +187,10 @@ class SoundSystem():
         nmb_samples = nmb_blocks * BLOCKSIZE
         remaining_time = nmb_samples / SAMPLING_RATE
         return remaining_time
+
+    def set_max_queue_depth(self, depth: int) -> None:
+        """Set a new maximum queue depth for adaptive buffering."""
+        self.max_queue_depth = depth
 
     def _start_mock_streams(self) -> dict:
         """Initialize mock streams for testing without hardware"""

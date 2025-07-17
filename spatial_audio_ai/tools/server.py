@@ -5,6 +5,7 @@ import socket
 import sys
 import numpy as np
 import struct  # For parsing custom UDP headers
+from spatial_audio_ai.config import UDP_BUFFER_DEPTH
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
 # import threading # No longer needed for single client
@@ -61,6 +62,9 @@ def handle_client(conn, addr, sound_system, verbose=False):
     # 'with conn:' in main ensures conn.close() is called
 
 
+# Control message magic for profile selection
+CONTROL_MAGIC = b'NPCC'
+
 class SoundServer:
     """Sound server class that can be used to start a server instance"""
     
@@ -96,13 +100,25 @@ class SoundServer:
                 while True:
                     try:
                         data, addr = s.recvfrom(65536)  # Receive UDP datagram
-                        # New client registration
-                        if addr not in clients:
-                            clients.add(addr)
-                            last_seq_map[addr] = None
-                            logger.info(f"[SERVER][JOIN] client={addr}")
+                        # Handle control packets for profile configuration
+                        if data.startswith(CONTROL_MAGIC):
+                            profile = data[len(CONTROL_MAGIC):].decode().strip()
+                            if addr not in clients:
+                                clients.add(addr)
+                                last_seq_map[addr] = None
+                            # Map profile to queue depth
+                            depth_map = {
+                                'ultra': 2,
+                                'low': 4,
+                                'stable': UDP_BUFFER_DEPTH * 2,
+                                'max': UDP_BUFFER_DEPTH * 4
+                            }
+                            depth = depth_map.get(profile, UDP_BUFFER_DEPTH)
+                            sound_system.set_max_queue_depth(depth)
+                            logger.info(f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}")
                             if self.verbose:
-                                print(f"[SERVER][JOIN] client={addr}")
+                                print(f"[SERVER][PROFILE] client={addr} profile={profile} -> queue_depth={depth}")
+                            continue
                         # Extract and parse custom header
                         raw_header = data[:s.HEADER_SIZE]
                         try:
