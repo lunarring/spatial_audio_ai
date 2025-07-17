@@ -546,15 +546,29 @@ class BlackHoleStereoRelayer:
         self._recording_thread = threading.Thread(target=self._record_audio, daemon=True)
         self._recording_thread.start()
 
-        # Pre-buffer chunks for smooth playback
-        min_buffer_chunks = 16  # Increased buffer depth (16 * 21.3ms = ~340ms buffer)
-        chunk_duration = self.chunk_size / self.sample_rate
+        # Check if we're using ZMQ (stable profile)
+        is_zmq_mode = hasattr(self.sound_streamer, 'use_zmq') and self.sound_streamer.use_zmq
         
-        # Adaptive timing variables for ultra-low latency profiles
+        if is_zmq_mode:
+            # ZMQ mode: Aggregate chunks for better performance and buffer stability
+            # Send 4x chunks (4 * 5.33ms = 21.3ms) to reduce JSON serialization overhead
+            chunks_per_send = 4
+            min_buffer_chunks = 16  # Still build initial buffer of 16 chunks (~85ms)
+            chunk_duration = self.chunk_size / self.sample_rate
+            target_send_interval = chunk_duration * chunks_per_send  # Send every 21.3ms instead of 5.33ms
+            print(f"[ZMQ MODE] Aggregating {chunks_per_send} chunks per send ({target_send_interval*1000:.1f}ms intervals)")
+        else:
+            # UDP mode: Use existing fast send rate
+            chunks_per_send = 1
+            min_buffer_chunks = 16  
+            chunk_duration = self.chunk_size / self.sample_rate
+            target_send_interval = chunk_duration  # Send every 5.33ms for low latency
+            print(f"[UDP MODE] Single chunk per send ({target_send_interval*1000:.1f}ms intervals)")
+        
+        # Adaptive timing variables 
         adaptive_timing = True  # Enable adaptive timing compensation
         timing_adjustment = 0.0  # Cumulative timing adjustment
         timing_history = deque(maxlen=100)  # Track recent timing measurements
-        target_send_interval = chunk_duration  # Target time between sends
         
         try:
             # Wait for initial buffer to fill
@@ -569,28 +583,56 @@ class BlackHoleStereoRelayer:
             start_time = time.perf_counter()
             chunk_counter = 0
             last_send_time = start_time
+            
+            # For ZMQ mode: accumulator for chunk aggregation
+            aggregated_chunks = []
 
             while not self._stop_event.is_set():
                 # Maintain buffer - only send if we have enough chunks ahead
-                if len(self.audio_deque) >= min_buffer_chunks:
-                    latest_chunk = self.audio_deque.popleft()
+                required_buffer = min_buffer_chunks + (chunks_per_send - 1)  # Extra buffer for aggregation
+                
+                if len(self.audio_deque) >= required_buffer:
+                    # Get chunk(s) for this send cycle
+                    if is_zmq_mode and chunks_per_send > 1:
+                        # ZMQ mode: Aggregate multiple chunks
+                        aggregated_chunks = []
+                        for _ in range(chunks_per_send):
+                            if len(self.audio_deque) > min_buffer_chunks:
+                                latest_chunk = self.audio_deque.popleft()
+                                if not isinstance(latest_chunk, np.ndarray):
+                                    latest_chunk = np.array(latest_chunk)
+                                aggregated_chunks.append(latest_chunk)
+                            else:
+                                break  # Don't go below minimum buffer
+                        
+                        if not aggregated_chunks:
+                            time.sleep(0.001)
+                            continue
+                            
+                        # Concatenate chunks along time axis (axis 0)
+                        aggregated_chunk = np.concatenate(aggregated_chunks, axis=0)
+                        processed_chunk = aggregated_chunk.T * self.stream_volume
+                    else:
+                        # UDP mode: Single chunk
+                        latest_chunk = self.audio_deque.popleft()
+                        if not isinstance(latest_chunk, np.ndarray):
+                            latest_chunk = np.array(latest_chunk)
+                        processed_chunk = latest_chunk.T * self.stream_volume
 
-                    if not isinstance(latest_chunk, np.ndarray):
-                        latest_chunk = np.array(latest_chunk)
-
-                    processed_chunk = latest_chunk.T * self.stream_volume
-                    
                     # Ensure no clipping that could cause clicks
                     processed_chunk = np.clip(processed_chunk, -1.0, 1.0)
 
-                    # Send the chunk
+                    # Send the chunk(s)
                     send_start_time = time.perf_counter()
                     self.sound_streamer.send(processed_chunk)
                     send_end_time = time.perf_counter()
                     
                     chunk_counter += 1
 
-                    logging.debug(f"Sent chunk {chunk_counter}, buffer size: {len(self.audio_deque)}")
+                    if is_zmq_mode:
+                        logging.debug(f"Sent {len(aggregated_chunks)} aggregated chunks, buffer size: {len(self.audio_deque)}")
+                    else:
+                        logging.debug(f"Sent chunk {chunk_counter}, buffer size: {len(self.audio_deque)}")
                     
                     # Adaptive timing mechanism
                     if adaptive_timing and chunk_counter > 1:
@@ -606,32 +648,34 @@ class BlackHoleStereoRelayer:
                         timing_adjustment += interval_error * smoothing_factor
                         
                         # Limit adjustment to prevent oscillation
-                        max_adjustment = chunk_duration * 0.1  # Max 10% adjustment
+                        max_adjustment = target_send_interval * 0.1  # Max 10% adjustment
                         timing_adjustment = np.clip(timing_adjustment, -max_adjustment, max_adjustment)
                         
                         # Log timing info occasionally
-                        if chunk_counter % 200 == 0:  # Every ~4 seconds
+                        log_interval = 100 if is_zmq_mode else 200  # Log more frequently for ZMQ
+                        if chunk_counter % log_interval == 0:
                             avg_interval = np.mean(list(timing_history)[-50:]) if timing_history else target_send_interval
                             buffer_health = "LOW" if len(self.audio_deque) < min_buffer_chunks + 5 else "GOOD"
-                            print(f"[TIMING] Avg interval: {avg_interval*1000:.2f}ms (target: {target_send_interval*1000:.2f}ms) | "
+                            mode_str = "ZMQ" if is_zmq_mode else "UDP"
+                            print(f"[{mode_str}][TIMING] Avg interval: {avg_interval*1000:.2f}ms (target: {target_send_interval*1000:.2f}ms) | "
                                   f"Adjustment: {timing_adjustment*1000:.2f}ms | Buffer: {buffer_health}")
                     
                     last_send_time = send_start_time
                     
                     # Calculate next send time with adaptive adjustment
-                    base_next_time = start_time + chunk_counter * chunk_duration
+                    base_next_time = start_time + chunk_counter * target_send_interval
                     adjusted_next_time = base_next_time - timing_adjustment
                     
                     # Add small random jitter to prevent perfect synchronization issues
-                    jitter = (random.random() - 0.5) * chunk_duration * 0.02  # ±1% jitter
+                    jitter = (random.random() - 0.5) * target_send_interval * 0.02  # ±1% jitter
                     final_next_time = adjusted_next_time + jitter
                     
                     sleep_time = final_next_time - time.perf_counter()
                     if sleep_time > 0:
                         time.sleep(sleep_time)
-                    elif sleep_time < -chunk_duration:
-                        # If we're more than one chunk behind, reset timing
-                        start_time = time.perf_counter() - chunk_counter * chunk_duration
+                    elif sleep_time < -target_send_interval:
+                        # If we're more than one send interval behind, reset timing
+                        start_time = time.perf_counter() - chunk_counter * target_send_interval
                         timing_adjustment = 0.0  # Reset adjustment on timing reset
                         logging.warning("Timing reset due to large delay")
                 else:
