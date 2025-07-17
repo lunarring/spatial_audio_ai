@@ -43,7 +43,7 @@ class SimulatedSocket:
     def connect(self, addr):
         self.connected = True
         self.addr = addr
-        print(f"Simulated socket connected to {addr}")
+        print(f"Simulated socket configured for {addr} (simulation mode)")
 
     def sendall(self, data):
         if not self.connected:
@@ -99,9 +99,9 @@ class SoundNetworkStreamer:
             self.socket.connect((self.host, self.port))
             self.socket_connected = True
             if self.simulate:
-                print(f"[Simulation] Connected to simulated server at {self.host}:{self.port}")
+                print(f"[Simulation] Configured to send to simulated server at {self.host}:{self.port}")
             else:
-                print(f"[UDP] Connected to server at {self.host}:{self.port}")
+                print(f"[UDP] Configured to send to server at {self.host}:{self.port} (connectionless)")
             # Send profile control on connect if provided
             if self.profile:
                 try:
@@ -110,6 +110,7 @@ class SoundNetworkStreamer:
                     print(f"[UDP][PROFILE] sent profile={self.profile}")
                 except Exception as e:
                     print(f"[UDP][PROFILE] failed to send profile: {e}")
+                    print(f"[UDP] Warning: Server may not be running")
             return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -122,7 +123,7 @@ class SoundNetworkStreamer:
             if self.socket_connected:
                 self.socket.close()
                 self.socket_connected = False
-                print("[UDP] Connection closed.")
+                print("[UDP] Socket closed.")
 
     def send(self, data: np.ndarray):
         if self.use_zmq:
@@ -134,7 +135,12 @@ class SoundNetworkStreamer:
                         self.socket.sendall(data)
                         # print(f"Sent data with shape {data.shape} to the server.")
                     except Exception as e:
-                        print(f"[UDP] Failed to send data: {e}")
+                        error_msg = str(e).lower()
+                        if 'connection refused' in error_msg or 'no route to host' in error_msg:
+                            print(f"[UDP] Failed to send data: {e}")
+                            print(f"[UDP] This usually means the server is not running at {self.host}:{self.port}")
+                        else:
+                            print(f"[UDP] Failed to send data: {e}")
                 else:
                     print(f"[UDP] Data shape[1] must be divisible by blocksize. Current shape[1]: {data.shape[1]}, blocksize: {BLOCKSIZE}")
             else:
@@ -198,26 +204,30 @@ class SoundNetworkStreamerZMQ:
             print(f"[ZMQ][CLIENT] lunar_tools available: {ZMQ_AVAILABLE}")
             
             self.zmq_client = lt.ZMQPairEndpoint(is_server=False, ip=self.host, port=str(self.zmq_port))
-            self.connected = True
-            print(f"[ZMQ][CLIENT] ✅ Connected to server at {self.host}:{self.zmq_port}")
+            print(f"[ZMQ][CLIENT] ZMQ endpoint created for {self.host}:{self.zmq_port}")
             print(f"[ZMQ][CLIENT] ZMQ client object: {self.zmq_client}")
             
-            # Send profile control message
+            # Test connectivity by sending profile control message
             control_msg = {
                 "client_id": self.client_id,
                 "control": {
                     "profile": self.profile
                 }
             }
-            print(f"[ZMQ][CLIENT] Sending control message: {control_msg}")
+            print(f"[ZMQ][CLIENT] Testing connection by sending control message: {control_msg}")
             self.zmq_client.send_json(control_msg)
-            print(f"[ZMQ][CLIENT] ✅ Profile message sent: profile={self.profile} client_id={self.client_id}")
             
-            # Small delay to ensure message is sent
+            # Small delay to allow message to be sent
             time.sleep(0.1)
             
+            # Mark as connected only after message was sent successfully
+            self.connected = True
+            print(f"[ZMQ][CLIENT] ✅ Connection appears successful - profile message sent: profile={self.profile} client_id={self.client_id}")
+            print(f"[ZMQ][CLIENT] Note: Server availability will be confirmed when audio data is processed")
+            
         except Exception as e:
-            print(f"[ZMQ][CLIENT] ❌ Failed to connect: {e}")
+            print(f"[ZMQ][CLIENT] ❌ Failed to establish connection: {e}")
+            print(f"[ZMQ][CLIENT] This usually means the server is not running")
             import traceback
             traceback.print_exc()
             self.connected = False
@@ -271,6 +281,7 @@ class SoundNetworkStreamerZMQ:
                 
         except Exception as e:
             print(f"[ZMQ] Failed to send data: {e}")
+            print(f"[ZMQ] This may indicate the server is not running or connection was lost")
     
     def receive(self) -> np.ndarray:
         """Receive data from server (if server sends responses)"""
