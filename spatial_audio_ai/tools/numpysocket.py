@@ -35,7 +35,7 @@ class FastNumpySocket(socket.socket):
             self.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
     def sendall(self, frame: np.ndarray) -> None:  # type: ignore[override]
-        """Send numpy array using raw binary format with time-axis fragmentation for UDP."""
+        """Send numpy array using raw binary transmission with MTU-based fragmentation for UDP."""
         # Downcast to float32 for UDP to reduce payload size
         if self.type == socket.SOCK_DGRAM and frame.dtype != np.float32:
             frame = frame.astype(np.float32)
@@ -43,34 +43,40 @@ class FastNumpySocket(socket.socket):
         if not frame.flags.c_contiguous:
             frame = np.ascontiguousarray(frame)
         if self.type == socket.SOCK_DGRAM:
-            # UDP: split along time axis into BLOCKSIZE slices to avoid oversize
-            from spatial_audio_ai.config import BLOCKSIZE
-            # Determine total samples along time axis
+            # UDP: fragment into MTU-sized datagrams
+            MTU = 1500  # Typical Ethernet MTU; adjust if needed
+            header_size = self.HEADER_SIZE
+            max_payload = MTU - header_size
+            elem_size = frame.dtype.itemsize
+            # Determine channel count and time-length
             if frame.ndim == 1:
-                total = frame.shape[0]
+                n_channels = 1
+                time_len = frame.shape[0]
             elif frame.ndim == 2:
-                total = frame.shape[1]
+                n_channels, time_len = frame.shape
             else:
                 raise ValueError(f"Unsupported array dimensions: {frame.ndim}")
-            # Send each time-slice
-            for start in range(0, total, BLOCKSIZE):
+            # Samples per packet based on payload limit
+            spp = max(1, max_payload // (n_channels * elem_size))
+            # Send each fragment
+            for start in range(0, time_len, spp):
                 if frame.ndim == 1:
-                    sub = frame[start:start + BLOCKSIZE]
+                    sub = frame[start:start + spp]
                 else:
-                    sub = frame[:, start:start + BLOCKSIZE]
-                # Pad last slice if needed
-                if sub.ndim == 1:
-                    if sub.shape[0] < BLOCKSIZE:
-                        sub = np.pad(sub, (0, BLOCKSIZE - sub.shape[0]), 'constant')
+                    sub = frame[:, start:start + spp]
+                # Pad if last fragment is smaller
+                if frame.ndim == 1:
+                    if sub.shape[0] < spp:
+                        sub = np.pad(sub, (0, spp - sub.shape[0]), 'constant')
                 else:
-                    if sub.shape[1] < BLOCKSIZE:
-                        padding = ((0, 0), (0, BLOCKSIZE - sub.shape[1]))
-                        sub = np.pad(sub, padding, 'constant')
-                # Pack and send
+                    if sub.shape[1] < spp:
+                        pad = ((0, 0), (0, spp - sub.shape[1]))
+                        sub = np.pad(sub, pad, 'constant')
+                # Pack header and send fragment
                 header = self._pack_header(sub)
                 packet = header + sub.tobytes()
                 super().send(packet)
-                logging.debug(f"Fast UDP sub-frame sent: seq={self._seq-1}, shape={sub.shape}, size={len(packet)} bytes")
+                logging.debug(f"Fast UDP fragment sent: seq={self._seq-1}, channels={n_channels}, samples={spp}, size={len(packet)} bytes")
         else:
             # TCP: send header then payload
             header = self._pack_header(frame)

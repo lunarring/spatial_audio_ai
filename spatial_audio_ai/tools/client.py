@@ -159,8 +159,8 @@ class SoundNetworkStreamer:
 
     def _send_frame(self, data: np.ndarray):
         """Send a single frame with ARQ pacing and retransmit tracking."""
-        # ARQ sliding-window pacing
-        if not self.simulate:
+        # ARQ sliding-window pacing only for UDP
+        if not self.simulate and getattr(self.socket, 'type', None) == socket.SOCK_DGRAM:
             while True:
                 with self.lock:
                     in_flight = self.last_sent_seq - self.last_ack_seq
@@ -169,7 +169,7 @@ class SoundNetworkStreamer:
                 time.sleep(0.001)
         # Actual send via UDP
         try:
-            self.socket.sendall(data)
+            self.socket.sendall(data)  # type: ignore[attr-defined]
             seq = self.socket._seq - 1
             if not self.simulate:
                 send_time = time.time()
