@@ -35,20 +35,26 @@ class FastNumpySocket(socket.socket):
 
     def sendall(self, frame: np.ndarray) -> None:  # type: ignore[override]
         """Send numpy array using raw binary format for minimal latency."""
+        # If using UDP, downcast to float32 to fit within MTU
+        if self.type == socket.SOCK_DGRAM and frame.dtype != np.float32:
+            frame = frame.astype(np.float32)
         # Ensure contiguous array for efficient transmission
         if not frame.flags.c_contiguous:
             frame = np.ascontiguousarray(frame)
-            
-        # Pack header: magic + shape + dtype
+        # Pack header and payload
         header = self._pack_header(frame)
-        
-        # Send header first
-        super().sendall(header)
-        
-        # Send raw array data
-        super().sendall(frame.tobytes())
-        
-        logging.debug(f"Fast frame sent: shape={frame.shape}, dtype={frame.dtype}")
+        data_bytes = frame.tobytes()
+        # Send in one datagram for UDP to avoid fragmentation
+        if self.type == socket.SOCK_DGRAM:
+            packet = header + data_bytes
+            # Use send on connected UDP socket
+            super().send(packet)
+            logging.debug(f"Fast UDP frame sent: seq={{self._seq-1}}, size={{len(packet)}} bytes")
+        else:
+            # TCP: send header then payload
+            super().sendall(header)
+            super().sendall(data_bytes)
+            logging.debug(f"Fast TCP frame sent: seq={{self._seq-1}}, shape={{frame.shape}}, dtype={{frame.dtype}}")
 
     def recv(self, bufsize: int = 8192) -> np.ndarray:  # type: ignore[override]
         """Receive numpy array using raw binary format."""
