@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import time  # Add timestamp support
+import errno  # For EMSGSIZE handling
 
 
 class FastNumpySocket(socket.socket):
@@ -47,14 +48,26 @@ class FastNumpySocket(socket.socket):
         # Send in one datagram for UDP to avoid fragmentation
         if self.type == socket.SOCK_DGRAM:
             packet = header + data_bytes
-            # Use send on connected UDP socket
-            super().send(packet)
-            logging.debug(f"Fast UDP frame sent: seq={{self._seq-1}}, size={{len(packet)}} bytes")
+            try:
+                super().send(packet)
+                logging.debug(f"Fast UDP frame sent: seq={self._seq-1}, size={len(packet)} bytes")
+            except OSError as e:
+                if getattr(e, 'errno', None) == errno.EMSGSIZE and frame.ndim == 2:
+                    # Fragment on channel dimension if packet too large
+                    for ch in range(frame.shape[0]):
+                        sub_frame = frame[ch:ch+1, :]
+                        sub_header = self._pack_header(sub_frame)
+                        sub_data = sub_frame.tobytes()
+                        sub_packet = sub_header + sub_data
+                        super().send(sub_packet)
+                        logging.debug(f"Fast UDP sub-frame sent: seq={self._seq-1}, channel={ch}, size={len(sub_packet)} bytes")
+                else:
+                    raise
         else:
             # TCP: send header then payload
             super().sendall(header)
             super().sendall(data_bytes)
-            logging.debug(f"Fast TCP frame sent: seq={{self._seq-1}}, shape={{frame.shape}}, dtype={{frame.dtype}}")
+            logging.debug(f"Fast TCP frame sent: seq={self._seq-1}, shape={frame.shape}, dtype={frame.dtype}")
 
     def recv(self, bufsize: int = 8192) -> np.ndarray:  # type: ignore[override]
         """Receive numpy array using raw binary format."""
