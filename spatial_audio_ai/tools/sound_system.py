@@ -28,10 +28,11 @@ class StereoChannels(IntEnum):
     RIGHT = 1
 
 class StreamManager():
-    def __init__(self, device : int, samplerate : int, stereo_channel_idx : int) -> None:
+    def __init__(self, device : int, samplerate : int, stereo_channel_idx : int, verbose : bool = False) -> None:
         self.device = device
         self.samplerate = samplerate
         self.stereo_channel_idx = stereo_channel_idx
+        self.verbose = verbose
         self.queue = deque()
         self.index = 0
         self.queue_index = 0
@@ -58,7 +59,7 @@ class StreamManager():
             
             # Log only when queue length changes by 2+ blocks OR every 500 callbacks (≈10 seconds)
             queue_change = abs(current_queue_len - self._last_logged_queue_len)
-            if queue_change >= 2 or self._callback_count % 500 == 0:
+            if self.verbose and (queue_change >= 2 or self._callback_count % 500 == 0):
                 print(f"[AUDIO CB] Queue: {current_queue_len} blocks")
                 self._last_logged_queue_len = current_queue_len
         else:
@@ -113,10 +114,11 @@ class MockStreamManager():
 
 class SoundSystem():
 
-    def __init__(self, log_level=logging.INFO, mock_mode=False) -> None:
+    def __init__(self, log_level=logging.INFO, mock_mode=False, verbose=False) -> None:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(level=log_level)
         self.mock_mode = mock_mode
+        self.verbose = verbose
         # Dynamic max queue depth for UDP profiles
         self.max_queue_depth = UDP_BUFFER_DEPTH
         
@@ -204,7 +206,7 @@ class SoundSystem():
         "Initalize and start streams for each speaker in the config."
         streams = {}
         for speaker, scfg in self.config.items():
-            streams[speaker] = StreamManager(scfg["vistual_sound_card_id"], samplerate=SAMPLING_RATE, stereo_channel_idx=int(scfg["stereo_channel"]))
+            streams[speaker] = StreamManager(scfg["vistual_sound_card_id"], samplerate=SAMPLING_RATE, stereo_channel_idx=int(scfg["stereo_channel"]), verbose=self.verbose)
             streams[speaker].start()
         return streams        
 

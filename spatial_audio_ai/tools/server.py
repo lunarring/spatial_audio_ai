@@ -52,7 +52,9 @@ def handle_client(conn, addr, sound_system, verbose=False):
                         logger.info(f"Sound array stats - Min: {np.min(sound_array)}, Max: {np.max(sound_array)}, Mean: {np.mean(sound_array)}, Std: {np.std(sound_array)}")
                     sound_system.add_to_playback_queue(sound_array)
                 else:
-                    logger.warning(f"Received array with unexpected shape {sound_array.shape} from {addr}. Disconnecting.")
+                    error_msg = f"[SERVER][MALFORMED] Received array with unexpected shape {sound_array.shape} from {addr}. Disconnecting."
+                    logger.warning(error_msg)
+                    print(error_msg)
                     break # Optional: disconnect on malformed data
             except socket.timeout: # If conn had a timeout
                 logger.info(f"Socket timeout waiting for data from {addr}. Assuming disconnect.")
@@ -96,7 +98,7 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
             
             # Log every 5 seconds to show the handler is alive
             current_time = time_module.perf_counter()
-            if current_time - last_log_time > 5.0:
+            if verbose and current_time - last_log_time > 5.0:
                 print(f"[ZMQ][HANDLER] ❤️ Handler alive - loop_count: {loop_count}, message_count: {message_count}")
                 last_log_time = current_time
             
@@ -104,13 +106,15 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                 time_module.sleep(0.001)  # Small sleep to prevent busy waiting
                 continue
             
-            print(f"[ZMQ][HANDLER] 📨 Received {len(messages)} messages")
+            if verbose:
+                print(f"[ZMQ][HANDLER] 📨 Received {len(messages)} messages")
                 
             for msg in messages:
                 try:
                     message_count += 1
-                    print(f"[ZMQ][HANDLER] 🔍 Processing message #{message_count}: {type(msg)}")
-                    print(f"[ZMQ][HANDLER] 🔍 Message keys: {list(msg.keys()) if isinstance(msg, dict) else 'Not a dict'}")
+                    if verbose:
+                        print(f"[ZMQ][HANDLER] 🔍 Processing message #{message_count}: {type(msg)}")
+                        print(f"[ZMQ][HANDLER] 🔍 Message keys: {list(msg.keys()) if isinstance(msg, dict) else 'Not a dict'}")
                     
                     # Handle control messages
                     if 'control' in msg:
@@ -146,14 +150,19 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         if last_seq is not None:
                             if seq > last_seq + 1:
                                 lost = seq - last_seq - 1
-                                logger.warning(f"[ZMQ][LOSS] client={client_id} lost={lost} frames (seq {last_seq+1}-{seq-1})")
+                                error_msg = f"[ZMQ][LOSS] client={client_id} lost={lost} frames (seq {last_seq+1}-{seq-1})"
+                                logger.warning(error_msg)
+                                print(error_msg)
                             elif seq <= last_seq:
-                                logger.warning(f"[ZMQ][REORDER] client={client_id} seq={seq} <= last_seq={last_seq}")
+                                error_msg = f"[ZMQ][REORDER] client={client_id} seq={seq} <= last_seq={last_seq}"
+                                logger.warning(error_msg)
+                                print(error_msg)
                         zmq_seq_map[client_id] = seq
                         
                         # Add to playback queue
                         sound_system.add_to_playback_queue(frame, seq)
-                        print(f"[ZMQ][AUDIO] ✅ Processed audio seq={seq} from client={client_id}, shape={frame.shape}")
+                        if verbose:
+                            print(f"[ZMQ][AUDIO] ✅ Processed audio seq={seq} from client={client_id}, shape={frame.shape}")
                         
                         if verbose and seq % 50 == 0:  # Log occasionally
                             print(f"[ZMQ][AUDIO] 📊 Audio stats - seq={seq} from client={client_id}")
@@ -199,7 +208,7 @@ class SoundServer:
     def start(self):
         """Start the dual-protocol sound server (UDP + ZMQ)"""
         # Only initialize SoundSystem when server is started
-        sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode)
+        sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode, verbose=self.verbose)
 
         # Initialize ZMQ server if enabled
         if self.enable_zmq:
@@ -281,11 +290,15 @@ class SoundServer:
                         try:
                             magic, seq, timestamp, shape0, shape1, dtype_code = struct.unpack('<4sQdIII', raw_header)
                         except Exception as e:
-                            logger.warning(f"[SERVER][MALFORMED] bad header from {addr}: {e}")
+                            error_msg = f"[SERVER][MALFORMED] bad header from {addr}: {e}"
+                            logger.warning(error_msg)
+                            print(error_msg)
                             continue
                         # Validate magic
                         if magic != FastNumpySocket.MAGIC:
-                            logger.warning(f"[SERVER][MALFORMED] invalid magic from {addr}: {magic}")
+                            error_msg = f"[SERVER][MALFORMED] invalid magic from {addr}: {magic}"
+                            logger.warning(error_msg)
+                            print(error_msg)
                             continue
                         # Determine shape and dtype
                         shape = (shape0,) if shape1 == 1 else (shape0, shape1)
@@ -295,15 +308,21 @@ class SoundServer:
                         if last_seq is not None:
                             if seq > last_seq + 1:
                                 lost = seq - last_seq - 1
-                                logger.warning(f"[SERVER][LOSS] client={addr} lost={lost} frames (seq {last_seq+1}-{seq-1})")
+                                error_msg = f"[SERVER][LOSS] client={addr} lost={lost} frames (seq {last_seq+1}-{seq-1})"
+                                logger.warning(error_msg)
+                                print(error_msg)
                             elif seq <= last_seq:
-                                logger.warning(f"[SERVER][REORDER] client={addr} seq={seq} <= last_seq={last_seq}")
+                                error_msg = f"[SERVER][REORDER] client={addr} seq={seq} <= last_seq={last_seq}"
+                                logger.warning(error_msg)
+                                print(error_msg)
                         last_seq_map[addr] = seq
                         # Validate payload length
                         payload = data[s.HEADER_SIZE:]
                         expected = np.prod(shape) * dtype.itemsize
                         if len(payload) < expected:
-                            logger.warning(f"[SERVER][INCOMPLETE] expected={expected} bytes but got={len(payload)} from {addr}")
+                            error_msg = f"[SERVER][INCOMPLETE] expected={expected} bytes but got={len(payload)} from {addr}"
+                            logger.warning(error_msg)
+                            print(error_msg)
                             continue
                         # Reconstruct and enqueue
                         frame = np.frombuffer(payload[:expected], dtype=dtype).reshape(shape)
