@@ -89,6 +89,24 @@ class SoundServer:
         # Only initialize SoundSystem when server is started
         sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode)
 
+        # Set up fallback TCP listener for reliable high-buffer profiles
+        tcp_sock = FastNumpySocket()  # default is TCP
+        tcp_sock.bind((self.host, self.port))
+        tcp_sock.listen(1)
+        tcp_sock.settimeout(1.0)
+        # Spawn accept loop for TCP
+        import threading
+        def tcp_accept_loop():
+            while True:
+                try:
+                    conn, addr = tcp_sock.accept()
+                    threading.Thread(target=handle_client, args=(conn, addr, sound_system, self.verbose), daemon=True).start()
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    logger.error(f"TCP accept error: {e}")
+                    break
+        threading.Thread(target=tcp_accept_loop, daemon=True).start()
         # Use UDP socket for streaming with sequence numbers and simple jitter handling
         with FastNumpySocket(type=socket.SOCK_DGRAM) as s:
             s.bind((self.host, self.port))

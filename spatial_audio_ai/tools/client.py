@@ -15,9 +15,10 @@ import socket  # Add socket import for UDP support
 import struct  # For ARQ ACK handling
 import gradio as gr
 from spatial_audio_ai.tools.tools import generate_random_noise
-from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, UDP_BUFFER_DEPTH
+from spatial_audio_ai.config import SAMPLING_RATE, CHUNKSIZE, BLOCKSIZE, UDP_BUFFER_DEPTH
 
-CHUNKSIZE = BLOCKSIZE * 4
+# Use CHUNKSIZE from config (block size)
+# CHUNKSIZE = BLOCKSIZE * 4  # legacy removed
 
 # Control message magic for profile selection
 CONTROL_MAGIC = b'NPCC'
@@ -68,7 +69,11 @@ class SoundNetworkStreamer:
         if self.simulate:
             self.socket = SimulatedSocket()
         else:
-            self.socket = FastNumpySocket(type=socket.SOCK_DGRAM)  # Use UDP for streaming
+            # For high-latency profiles (balanced, high_buffer, super_buffer) use TCP for reliability
+            if self.profile in ('balanced', 'high_buffer', 'super_buffer'):
+                self.socket = FastNumpySocket()  # TCP by default
+            else:
+                self.socket = FastNumpySocket(type=socket.SOCK_DGRAM)
         self.socket_connected = False
         self.lock = threading.Lock()  # To ensure thread safety if needed
         # ARQ state
@@ -104,11 +109,11 @@ class SoundNetworkStreamer:
                 print(f"[CLIENT][PROFILE] sent profile={self.profile}")
             except Exception as e:
                 print(f"[CLIENT][PROFILE] failed to send profile: {e}")
-        # Setup ARQ if UDP
-        if not self.simulate:
+        # Setup ARQ if using UDP socket
+        if not self.simulate and self.socket.type == socket.SOCK_DGRAM:
             # Determine window size from profile
             self.window_size = self.window_map.get(self.profile, UDP_BUFFER_DEPTH * 4)
-            # Start ACK and retransmit threads
+            # Start ACK listener and retransmit threads
             self.ack_thread = threading.Thread(target=self._ack_listener, daemon=True)
             self.ack_thread.start()
             self.retransmit_thread = threading.Thread(target=self._retransmit_loop, daemon=True)
@@ -116,6 +121,7 @@ class SoundNetworkStreamer:
         # Setup background sender for pacing
         from collections import deque
         self.send_buffer = deque()
+        # Use config.CHUNKSIZE for pacing interval
         self.chunk_duration = CHUNKSIZE / SAMPLING_RATE
         self._stop_sender = threading.Event()
         self.sender_thread = threading.Thread(target=self._sender_loop, daemon=True)
