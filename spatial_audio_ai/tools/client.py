@@ -11,6 +11,7 @@ import random
 from collections import deque
 import threading
 import logging
+import socket  # Add socket import for UDP support
 import gradio as gr
 from spatial_audio_ai.tools.tools import generate_random_noise
 from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE
@@ -55,7 +56,7 @@ class SoundNetworkStreamer:
         if self.simulate:
             self.socket = SimulatedSocket()
         else:
-            self.socket = FastNumpySocket()
+            self.socket = FastNumpySocket(type=socket.SOCK_DGRAM)  # Use UDP for streaming
         self.socket_connected = False
         self.lock = threading.Lock()  # To ensure thread safety if needed
         self.__enter__()

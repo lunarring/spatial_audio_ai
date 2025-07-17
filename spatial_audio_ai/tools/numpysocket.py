@@ -7,6 +7,7 @@ import struct
 from typing import Any
 
 import numpy as np
+import time  # Add timestamp support
 
 
 class FastNumpySocket(socket.socket):
@@ -14,10 +15,11 @@ class FastNumpySocket(socket.socket):
     
     # Protocol constants
     MAGIC = b'NPSF'  # NumpySocket Fast
-    HEADER_SIZE = 16  # Magic(4) + Shape(8) + DType(4)
+    HEADER_SIZE = 32  # Magic(4) + Seq(8) + Timestamp(8) + Shape0(4) + Shape1(4) + DType(4)
     
     def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, fileno=None):
         super().__init__(family, type, proto, fileno)
+        self._seq = 0  # Initialize sequence counter
         
         # Optimize for real-time audio streaming
         if type == socket.SOCK_STREAM:  # TCP optimizations
@@ -96,7 +98,10 @@ class FastNumpySocket(socket.socket):
         return bytes(data[:pos])
 
     def _pack_header(self, frame: np.ndarray) -> bytes:
-        """Pack array metadata into binary header."""
+        """Pack array metadata into binary header with sequence number and timestamp."""
+        seq = self._seq
+        timestamp = time.perf_counter()
+        self._seq += 1
         # Support up to 2D arrays (typical for audio)
         if frame.ndim == 1:
             shape = (frame.shape[0], 1)
@@ -109,11 +114,11 @@ class FastNumpySocket(socket.socket):
         dtype_code = self._dtype_to_code(frame.dtype)
         
         # Pack: magic(4) + shape0(4) + shape1(4) + dtype(4)
-        return struct.pack('<4sIII', self.MAGIC, shape[0], shape[1], dtype_code)
+        return struct.pack('<4sQdIII', self.MAGIC, seq, timestamp, shape[0], shape[1], dtype_code)
 
     def _unpack_header(self, header_data: bytes) -> tuple[bytes, tuple[int, int], np.dtype]:
-        """Unpack binary header to get array metadata."""
-        magic, shape0, shape1, dtype_code = struct.unpack('<4sIII', header_data)
+        """Unpack binary header to get array metadata, discarding sequence and timestamp."""
+        magic, seq, timestamp, shape0, shape1, dtype_code = struct.unpack('<4sQdIII', header_data)
         dtype = self._code_to_dtype(dtype_code)
         
         # Convert back to 1D if second dimension is 1

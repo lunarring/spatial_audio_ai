@@ -75,6 +75,11 @@ AUDIO_LATENCY_MODE = 'ultra'  # Change to 'ultra' for lowest latency
 # Hardware settings
 N_SPEAKERS = 13
 
+# UDP streaming settings
+USE_UDP = True  # Use UDP instead of TCP for audio streaming
+UDP_PORT = DEFAULT_PORT  # UDP port for streaming
+UDP_BUFFER_DEPTH = MAX_AUDIO_QUEUE_DEPTH  # Number of blocks to buffer for UDP
+
 print("Spatial Audio AI initialized:")
 print(f"  Sample Rate: {SAMPLING_RATE} Hz (fixed)")
 print(f"  Block Size: {BLOCKSIZE} samples "

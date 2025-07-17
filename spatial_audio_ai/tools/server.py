@@ -81,46 +81,43 @@ class SoundServer:
         """Start the sound server"""
         # Only initialize SoundSystem when server is started
         sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode)
-        
-        with FastNumpySocket() as s:
+
+        # Use UDP socket for streaming with sequence numbers and simple jitter handling
+        with FastNumpySocket(type=socket.SOCK_DGRAM) as s:
             s.bind((self.host, self.port))
-            s.listen(1)  # Only allow one connection in the backlog
-            s.settimeout(1.0)  # Timeout for s.accept() to allow KeyboardInterrupt
-            
-            print(f"Server started on {self.host}:{self.port}. Press Ctrl+C to stop.")
-            
+            s.settimeout(1.0)  # Timeout to allow graceful shutdown
+
+            print(f"UDP server started on {self.host}:{self.port}. Press Ctrl+C to stop.")
+            clients = set()
+
             try:
                 while True:
-                    if self.verbose:
-                        print("Waiting for client connection...")
-                    
                     try:
-                        # Wait for a client to connect
-                        conn, addr = s.accept()
-                        
-                        # Handle this client (blocking until client disconnects)
-                        with conn: 
-                            handle_client(conn, addr, sound_system, self.verbose)
-                            
+                        data, addr = s.recvfrom(65536)  # Receive UDP datagram
+                        if addr not in clients:
+                            clients.add(addr)
+                            logger.info(f"Client joined: {addr}")
+                            if self.verbose:
+                                print(f"Client joined: {addr}")
+                        # Parse header and payload
+                        header = data[:s.HEADER_SIZE]
+                        magic, shape, dtype = s._unpack_header(header)
+                        payload = data[s.HEADER_SIZE:]
+                        expected = np.prod(shape) * np.dtype(dtype).itemsize
+                        if len(payload) < expected:
+                            logger.warning(f"Incomplete packet from {addr}: {len(payload)}/{expected} bytes")
+                            continue
+                        frame = np.frombuffer(payload[:expected], dtype=dtype).reshape(shape)
+                        sound_system.add_to_playback_queue(frame)
                     except socket.timeout:
-                        # This is for s.accept() timeout, just continue the loop
                         continue
-                    except Exception as e:
-                        logger.error(f"Error during accept or client handling setup: {e}")
-                        # Decide if server should continue or stop on such errors
-                        # For now, let's print and continue listening, but could also break
-                        print(f"An error occurred: {e}. Server continues listening.")
-                        time_module.sleep(1) # Avoid fast error loop
-                        
             except KeyboardInterrupt:
                 print("\nServer shutting down gracefully...")
             except Exception as e:
-                # Catch other unexpected errors in the main server loop
                 print(f"\nCritical server error: {e}")
                 logger.critical(f"Critical server error: {e}", exc_info=True)
             finally:
                 print("Cleaning up resources...")
-                # s.close() is handled by 'with FastNumpySocket() as s:'
                 print("Server stopped.")
                 sys.exit(0)
 
