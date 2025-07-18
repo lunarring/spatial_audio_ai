@@ -273,6 +273,58 @@ def stream_audio_file(file_path: str,
         streamer.close()
 
 
+async def stream_audio_generator(audio_generator, input_sr: int = SAMPLING_RATE, mapping_scheme: str = 'alternating', speaker_id: int = None, host: str = "10.40.49.47", port: int = 9999, volume: float = 1.0, auto_resample: bool = True, profile: str = 'stable'):
+    """Stream audio from an async generator via network to sound server using mapping schemes."""
+    import asyncio
+    buffer = None
+    # Validate speaker ID if using single mode
+    if mapping_scheme == 'single':
+        if speaker_id is None:
+            raise ValueError("Speaker ID required for 'single' mapping scheme")
+        if not 1 <= speaker_id <= 13:
+            raise ValueError("Speaker ID must be between 1 and 13")
+    # Validate volume
+    if not 0.0 <= volume <= 2.0:
+        raise ValueError("Volume must be between 0.0 and 2.0")
+    # Initialize streamer
+    streamer = SoundNetworkStreamer(host=host, port=port, profile=profile)
+    with streamer:
+        async for audio_chunk in audio_generator:
+            # Ensure float32
+            if audio_chunk.dtype != np.float32:
+                audio_chunk = audio_chunk.astype(np.float32)
+            # Resample if needed
+            if auto_resample and input_sr != SAMPLING_RATE:
+                audio_chunk = resample_audio(audio_chunk, input_sr, SAMPLING_RATE)
+                input_sr = SAMPLING_RATE
+            # Apply volume
+            audio_chunk = audio_chunk * volume
+            # Accumulate buffer
+            if buffer is None:
+                buffer = audio_chunk
+            else:
+                buffer = np.concatenate((buffer, audio_chunk), axis=0)
+            # Stream in blocks
+            while len(buffer) >= BLOCKSIZE:
+                block = buffer[:BLOCKSIZE]
+                buffer = buffer[BLOCKSIZE:]
+                multi_channel = prepare_for_streaming(block, mapping_scheme=mapping_scheme, speaker_id=speaker_id)
+                streamer.send(multi_channel)
+                await asyncio.sleep(BLOCKSIZE / input_sr)
+        # Flush remainder
+        if buffer is not None and len(buffer) > 0:
+            rem = len(buffer)
+            pad_len = BLOCKSIZE - rem
+            if buffer.ndim == 2:
+                pad_shape = ((0, pad_len), (0, 0))
+            else:
+                pad_shape = (0, pad_len)
+            padded = np.pad(buffer, pad_shape, mode='constant')
+            multi_channel = prepare_for_streaming(padded, mapping_scheme=mapping_scheme, speaker_id=speaker_id)
+            streamer.send(multi_channel)
+            await asyncio.sleep(BLOCKSIZE / input_sr)
+
+
 def main():
     """Main command-line interface."""
     parser = argparse.ArgumentParser(
