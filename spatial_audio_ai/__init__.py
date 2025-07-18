@@ -17,6 +17,11 @@ from spatial_audio_ai.tools.client import (
     SoundNetworkStreamer,
     SoundNetworkStreamerZMQ
 )
+from spatial_audio_ai.tools.buffered_streaming import (
+    AudioBuffer,
+    buffered_stream_audio_generator,
+    stream_audio_buffered
+)
 from spatial_audio_ai.config import (
     get_sample_rate,
     set_sample_rate,
@@ -33,6 +38,9 @@ __all__ = [
     'SO_PlaybackMultiHarmonic',
     'SoundNetworkStreamer',
     'SoundNetworkStreamerZMQ',
+    'AudioBuffer',
+    'buffered_stream_audio_generator',
+    'stream_audio_buffered',
     'get_sample_rate',
     'set_sample_rate',
     'SAMPLING_RATE',
