@@ -188,7 +188,7 @@ def stream_audio_file(file_path: str,
                      port: int = 9999,
                      volume: float = 1.0,
                      auto_resample: bool = True,
-                     profile: str = 'ultra_low_latency'):
+                     profile: str = 'stable'):
     """
     Load and stream an audio file over the network.
     
@@ -200,7 +200,7 @@ def stream_audio_file(file_path: str,
         port: Server port
         volume: Volume multiplier (0.0 to 2.0)
         auto_resample: Whether to resample to system rate
-        profile: Audio latency profile (default: ultra_low_latency)
+        profile: Audio latency profile (default: balanced)
     """
     # Validate speaker ID if using single mode
     if mapping_scheme == 'single':
@@ -300,8 +300,8 @@ Examples:
                        help='Server host address (default: 10.40.49.47)')
     parser.add_argument('--port', type=int, default=9999,
                        help='Server port (default: 9999)')
-    parser.add_argument('--profile', default='ultra_low_latency', choices=list(ALLOWED_PROFILES),
-                       help='Audio latency profile (default: ultra_low_latency)')
+    parser.add_argument('--profile', default='balanced', choices=list(ALLOWED_PROFILES),
+                       help='Audio latency profile (default: balanced)')
     parser.add_argument('--no-resample', action='store_true',
                        help='Do not resample audio to system rate')
     
