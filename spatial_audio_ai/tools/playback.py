@@ -124,10 +124,6 @@ def prepare_for_streaming(audio_data: np.ndarray,
         if 0 <= speaker_idx < n_speakers:
             mono_signal = (left + right) / 2
             multi_channel_audio[speaker_idx] = mono_signal
-            print(
-                f"Prepared audio for streaming: {multi_channel_audio.shape} "
-                f"routed to speaker {speaker_id}"
-            )
         else:
             raise ValueError(
                 f"Speaker ID must be between 1 and {n_speakers}"
@@ -142,10 +138,6 @@ def prepare_for_streaming(audio_data: np.ndarray,
                 multi_channel_audio[i] = right
         # 13th channel is sum of left and right
         multi_channel_audio[12] = (left + right) / 2
-        print(
-            f"Prepared audio for streaming: {multi_channel_audio.shape} "
-            f"with alternating mapping"
-        )
     
     elif mapping_scheme == 'stereo':
         # Stereo (grouped) mapping: first 6 channels are left, next 6 channels are right
@@ -155,10 +147,6 @@ def prepare_for_streaming(audio_data: np.ndarray,
             multi_channel_audio[i] = right
         # 13th channel is sum of left and right
         multi_channel_audio[12] = (left + right) / 2
-        print(
-            f"Prepared audio for streaming: {multi_channel_audio.shape} "
-            f"with stereo mapping"
-        )
     
     elif mapping_scheme == 'mono':
         # Mono mapping: averaged left+right signal to all channels
@@ -167,10 +155,6 @@ def prepare_for_streaming(audio_data: np.ndarray,
             multi_channel_audio[i] = mono_signal
         # 13th channel is also the mono signal
         multi_channel_audio[12] = mono_signal
-        print(
-            f"Prepared audio for streaming: {multi_channel_audio.shape} "
-            f"with mono mapping"
-        )
     
     else:
         raise ValueError(
