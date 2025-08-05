@@ -719,3 +719,87 @@ class SO_PlaybackMultiHarmonic(SoundObjectBase):
         # Apply current modulation pattern if orientation has been set
         # For now, just update the base
         self.target_harmonic_amplitudes = base_amplitudes
+
+
+class SO_SamplePlayback(SoundObjectBase):
+    def __init__(
+        self, 
+        sample_data: np.ndarray,
+        position: np.ndarray = np.zeros(2, dtype=float),
+        amplitude: float = 1.0
+    ):
+        """
+        Triggered sample playback sound object.
+        Args:
+            sample_data: The audio sample data (numpy array).
+            position: Position in 2D space.
+            amplitude: Playback amplitude (0.0 to 1.0).
+        """
+        self.sample_data = sample_data
+        self.position = position.copy()
+        self.amplitude = amplitude
+        self.sample_index = 0
+        self.is_playing = False
+        self._id = uuid.uuid4()
+        
+    def trigger(self):
+        """Trigger the sample to start playing from the beginning."""
+        self.sample_index = 0
+        self.is_playing = True
+        
+    def query(self, tick: int) -> SoundMessage:
+        """Generate next chunk of the sample."""
+        if not self.is_playing:
+            # Return silence if not playing
+            return SoundMessage(
+                sound=np.zeros(CHUNKSIZE, dtype=float), 
+                position=self.position
+            )
+        
+        # Extract chunk from sample
+        start_idx = self.sample_index
+        end_idx = start_idx + CHUNKSIZE
+        
+        if start_idx >= len(self.sample_data):
+            # Sample finished, return silence and stop
+            self.is_playing = False
+            return SoundMessage(
+                sound=np.zeros(CHUNKSIZE, dtype=float), 
+                position=self.position
+            )
+        
+        # Get chunk from sample data
+        chunk = self.sample_data[start_idx:end_idx]
+        
+        # Pad if necessary (end of sample)
+        if len(chunk) < CHUNKSIZE:
+            chunk = np.pad(chunk, (0, CHUNKSIZE - len(chunk)), 'constant')
+            self.is_playing = False  # Sample finished
+        
+        # Apply amplitude
+        chunk = chunk * self.amplitude
+        
+        # Update index
+        self.sample_index = end_idx
+        
+        return SoundMessage(sound=chunk, position=self.position)
+    
+    def set_position(self, position: np.ndarray):
+        """Update position."""
+        self.position = position.copy()
+        
+    def get_position(self):
+        """Get current position."""
+        return self.position
+    
+    def set_amplitude(self, amplitude: float):
+        """Set playback amplitude."""
+        self.amplitude = amplitude
+        
+    def is_playing_sample(self):
+        """Check if sample is currently playing."""
+        return self.is_playing
+    
+    def stop(self):
+        """Stop sample playback."""
+        self.is_playing = False
