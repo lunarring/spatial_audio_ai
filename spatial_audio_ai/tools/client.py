@@ -547,11 +547,11 @@ class BlackHoleStereoRelayer:
         
         if is_zmq_mode:
             # ZMQ mode: Aggregate chunks for better performance and buffer stability
-            # Send 4x chunks (4 * 5.33ms = 21.3ms) to reduce JSON serialization overhead
-            chunks_per_send = 4
-            min_buffer_chunks = 16  # Still build initial buffer of 16 chunks (~85ms)
+            # Send 8x chunks (8 * 5.33ms = 42.7ms) to reduce JSON serialization overhead
+            chunks_per_send = 8
+            min_buffer_chunks = 28  # Build initial buffer of 28 chunks (~150ms)
             chunk_duration = self.chunk_size / self.sample_rate
-            target_send_interval = chunk_duration * chunks_per_send  # Send every 21.3ms instead of 5.33ms
+            target_send_interval = chunk_duration * chunks_per_send  # Send every 42.7ms instead of 5.33ms
             print(f"[ZMQ MODE] Aggregating {chunks_per_send} chunks per send ({target_send_interval*1000:.1f}ms intervals)")
         else:
             # UDP mode: Use existing fast send rate
