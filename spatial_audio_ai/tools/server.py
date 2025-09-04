@@ -7,6 +7,7 @@ import numpy as np
 import struct  # For parsing custom UDP headers
 import threading
 import json
+import base64
 import traceback
 from spatial_audio_ai.config import UDP_BUFFER_DEPTH, get_profile_queue_depth, ALLOWED_PROFILES, get_min_buffer_blocks
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
@@ -168,9 +169,19 @@ def handle_zmq_client(zmq_server, sound_system, verbose=False):
                         seq = audio_info.get('seq', 0)
                         timestamp = audio_info.get('timestamp', time_module.perf_counter())
                         
-                        # Reconstruct numpy array from JSON
-                        array_data = np.array(audio_info['data'], dtype=audio_info['dtype'])
-                        frame = array_data.reshape(audio_info['shape'])
+                        # Reconstruct numpy array from binary base64 if present, else JSON list
+                        if 'b64' in audio_info:
+                            try:
+                                raw = base64.b64decode(audio_info['b64'])
+                                dtype = np.dtype(audio_info['dtype'])
+                                frame = np.frombuffer(raw, dtype=dtype)
+                                frame = frame.reshape(audio_info['shape'])
+                            except Exception as e:
+                                print(f"[ZMQ][AUDIO] base64 decode error: {e}")
+                                continue
+                        else:
+                            array_data = np.array(audio_info['data'], dtype=audio_info['dtype'])
+                            frame = array_data.reshape(audio_info['shape'])
                         
                         # Sequence checking (similar to UDP)
                         last_seq = zmq_seq_map.get(client_id)

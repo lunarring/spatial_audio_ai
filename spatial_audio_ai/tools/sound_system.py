@@ -43,6 +43,9 @@ class StreamManager():
         # Adaptive buffer management for ultra-low latency profiles
         self.target_buffer_blocks = 2  # Target buffer level for stable playback
         self.adaptive_mode = False  # Enable adaptive timing adjustments
+        
+        # Underrun counter for diagnostics
+        self.underruns = 0
 
     def set_min_buffer_blocks(self, min_blocks: int):
         """Set minimum buffer blocks required before starting playback"""
@@ -100,8 +103,9 @@ class StreamManager():
             self.playback_started = False
             audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
             outdata[:] = audio_to_play
+            self.underruns += 1
             if not getattr(self, '_underflow_logged', False):
-                print(f"[SERVER][UNDERFLOW] Buffer underrun - stopping playback, will restart when {self.min_buffer_blocks} blocks available")
+                print(f"[SERVER][UNDERFLOW] Buffer underrun - stopping playback, will restart when {self.min_buffer_blocks} blocks available (underruns={self.underruns})")
                 self._underflow_logged = True
             return
         
@@ -279,19 +283,38 @@ class SoundSystem():
             status = "PLAYING" if playback_active else "BUFFERING"
             buffer_health = "HEALTHY" if buffer_ms >= min_buffer_ms else "LOW"
             
+            # Underrun summary across streams
+            min_q = None
+            max_q = None
+            total_underruns = 0
+            if hasattr(self, 'streams') and self.streams:
+                for stream in self.streams.values():
+                    qlen = len(stream.queue)
+                    min_q = qlen if min_q is None else min(min_q, qlen)
+                    max_q = qlen if max_q is None else max(max_q, qlen)
+                    total_underruns += getattr(stream, 'underruns', 0)
+            
             # Add adaptive mode info to logging
             mode_info = " [ADAPTIVE]" if adaptive_mode else ""
-            print(f"[SERVER][BUFFER] {status} | {buffer_ms:.1f}ms queued (min: {min_buffer_ms:.1f}ms) | Health: {buffer_health}{mode_info} | Enqueue: {(t1-t0)*1000:.1f}ms")
+            print(f"[SERVER][BUFFER] {status} | minQ:{min_q} maxQ:{max_q} blocks | {buffer_ms:.1f}ms queued (min: {min_buffer_ms:.1f}ms) | Health: {buffer_health}{mode_info} | Underruns(sum): {total_underruns} | Enqueue: {(t1-t0)*1000:.1f}ms")
             self._last_logged_buffer = buf_secs
 
     def get_current_buffer_time(self) -> int:
-        "Return the length of the queue of the first stream."
+        "Return the minimum queued time across all streams."
         if self.mock_mode:
             return 0
-            
-        first_stream_key = next(iter(self.streams))
-        nmb_blocks = len(self.streams[first_stream_key].queue)
-        nmb_samples = nmb_blocks * BLOCKSIZE
+        
+        if not hasattr(self, 'streams') or not self.streams:
+            return 0
+        
+        min_blocks = None
+        for stream in self.streams.values():
+            q_len = len(stream.queue)
+            if min_blocks is None or q_len < min_blocks:
+                min_blocks = q_len
+        if min_blocks is None:
+            return 0
+        nmb_samples = min_blocks * BLOCKSIZE
         remaining_time = nmb_samples / SAMPLING_RATE
         return remaining_time
 

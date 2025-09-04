@@ -15,6 +15,7 @@ import socket  # Add socket import for UDP support
 import gradio as gr
 import json
 import uuid
+import base64
 from spatial_audio_ai.tools.tools import generate_random_noise
 from spatial_audio_ai.config import SAMPLING_RATE, BLOCKSIZE, CHUNKSIZE, ALLOWED_PROFILES
 
@@ -285,17 +286,36 @@ class SoundNetworkStreamerZMQ:
             return
         
         try:
-            # Prepare audio data message
-            audio_msg = {
-                "client_id": self.client_id,
-                "audio_data": {
-                    "seq": self._seq,
-                    "timestamp": time.perf_counter(),
-                    "shape": list(data.shape),
-                    "dtype": str(data.dtype),
-                    "data": data.tolist()  # Convert numpy array to list for JSON
+            # Prepare audio data message with base64-encoded binary to avoid heavy JSON conversion
+            payload_b64 = None
+            try:
+                payload_b64 = base64.b64encode(data.tobytes()).decode('ascii')
+            except Exception as e:
+                # Fallback to JSON list if encoding fails
+                payload_b64 = None
+            
+            if payload_b64 is not None:
+                audio_msg = {
+                    "client_id": self.client_id,
+                    "audio_data": {
+                        "seq": self._seq,
+                        "timestamp": time.perf_counter(),
+                        "shape": list(data.shape),
+                        "dtype": str(data.dtype),
+                        "b64": payload_b64
+                    }
                 }
-            }
+            else:
+                audio_msg = {
+                    "client_id": self.client_id,
+                    "audio_data": {
+                        "seq": self._seq,
+                        "timestamp": time.perf_counter(),
+                        "shape": list(data.shape),
+                        "dtype": str(data.dtype),
+                        "data": data.tolist()
+                    }
+                }
             
             # Send via ZMQ
             self.zmq_client.send_json(audio_msg)
@@ -547,11 +567,11 @@ class BlackHoleStereoRelayer:
         
         if is_zmq_mode:
             # ZMQ mode: Aggregate chunks for better performance and buffer stability
-            # Send 10x chunks (10 * 5.33ms = 53.3ms) to reduce JSON serialization overhead further
-            chunks_per_send = 10
-            min_buffer_chunks = 36  # Build initial buffer of 36 chunks (~192ms)
+            # Send 6x chunks (6 * 5.33ms = 32.0ms) to reduce overhead while limiting burst size
+            chunks_per_send = 6
+            min_buffer_chunks = 32  # Build initial buffer of 32 chunks (~170ms)
             chunk_duration = self.chunk_size / self.sample_rate
-            target_send_interval = chunk_duration * chunks_per_send  # Send every 53.3ms instead of 5.33ms
+            target_send_interval = chunk_duration * chunks_per_send  # Send every ~32.0ms instead of 5.33ms
             print(f"[ZMQ MODE] Aggregating {chunks_per_send} chunks per send ({target_send_interval*1000:.1f}ms intervals)")
         else:
             # UDP mode: Use existing fast send rate
@@ -590,23 +610,35 @@ class BlackHoleStereoRelayer:
                 if len(self.audio_deque) >= required_buffer:
                     # Get chunk(s) for this send cycle
                     if is_zmq_mode and chunks_per_send > 1:
-                        # ZMQ mode: Aggregate multiple chunks
+                        # ZMQ mode: Aggregate multiple chunks with strict BLOCKSIZE reblocking
                         aggregated_chunks = []
+                        total_samples = 0
                         for _ in range(chunks_per_send):
                             if len(self.audio_deque) > min_buffer_chunks:
                                 latest_chunk = self.audio_deque.popleft()
                                 if not isinstance(latest_chunk, np.ndarray):
                                     latest_chunk = np.array(latest_chunk)
                                 aggregated_chunks.append(latest_chunk)
+                                total_samples += latest_chunk.shape[0]
                             else:
                                 break  # Don't go below minimum buffer
                         
                         if not aggregated_chunks:
                             time.sleep(0.001)
                             continue
-                            
-                        # Concatenate chunks along time axis (axis 0)
+                        
+                        # Concatenate and then trim to multiple of BLOCKSIZE
                         aggregated_chunk = np.concatenate(aggregated_chunks, axis=0)
+                        remainder = aggregated_chunk.shape[0] % BLOCKSIZE
+                        if remainder != 0:
+                            # push back remainder to deque front to avoid dropping audio
+                            extra = aggregated_chunk[-remainder:]
+                            aggregated_chunk = aggregated_chunk[:-remainder]
+                            # Put the remainder back so it will be included next send
+                            self.audio_deque.appendleft(extra)
+                        if aggregated_chunk.shape[0] == 0:
+                            time.sleep(0.001)
+                            continue
                         processed_chunk = aggregated_chunk.T * self.stream_volume
                     else:
                         # UDP mode: Single chunk

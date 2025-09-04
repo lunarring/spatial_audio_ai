@@ -106,9 +106,9 @@ PROFILE_DEFINITIONS = {
     'stable': {
         'description': 'ZMQ-optimized with high buffering (~191ms)',
         'udp_depth_multiplier': 8.0,        # Fallback for UDP
-        'zmq_depth_multiplier': 28.0,       # UDP_BUFFER_DEPTH * 28
+        'zmq_depth_multiplier': 24.0,       # UDP_BUFFER_DEPTH * 24 (reduce send burstiness)
         'recommended_protocol': 'zmq',
-        'min_buffer_blocks': 36,             # Start playback after 36 blocks (~192ms) - very bad WiFi
+        'min_buffer_blocks': 32,             # Start playback after 32 blocks (~170ms) to avoid underruns
     }
 }
 
