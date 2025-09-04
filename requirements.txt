@@ -7,3 +7,5 @@ sounddevice
 soundfile
 torch
 gradio
+pyzmq
+pygame

@@ -1,4 +1,5 @@
 import gradio as gr
+import lunar_tools as lt
 import os
 import random
 import string
@@ -11,8 +12,9 @@ from spatial_audio_ai.generators.stable_audio import (
 )
 from spatial_audio_ai.tools.tools import apply_fade_in_out, save_sound
 from spatial_audio_ai.tools.spatializer import (
-    SO_Playback, CHUNKSIZE, SAMPLING_RATE
+    CHUNKSIZE, SAMPLING_RATE
 )
+from spatial_audio_ai.tools.sound_objects import SO_Playback
 
 # Default prompts (hybrid/mixed)
 default_prompts = [
@@ -262,4 +264,4 @@ with gr.Blocks() as demo:
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="10.40.49.109")
+    demo.launch(server_name=lt.get_local_ip())

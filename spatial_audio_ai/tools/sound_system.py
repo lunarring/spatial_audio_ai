@@ -179,6 +179,8 @@ class SoundSystem():
         self.verbose = verbose
         # Dynamic max queue depth for UDP profiles
         self.max_queue_depth = UDP_BUFFER_DEPTH
+        # Mono restream queue (BLOCKSIZE-sized mono chunks)
+        self.return_queue = deque()
         
         if not mock_mode:
             try:
@@ -221,6 +223,9 @@ class SoundSystem():
                 for stream in self.streams.values():
                     if len(stream.queue) > 0:
                         stream.queue.popleft()  # Remove oldest chunk
+                # Keep the mono restream queue aligned
+                if len(self.return_queue) > 0:
+                    self.return_queue.popleft()
                 print(f"[SERVER][ADAPTIVE-DROP] dropped oldest chunk, queue reduced to {current_queue_len-1} (seq={seq if seq is not None else '?'})")
             else:
                 # Still at max, drop this new chunk
@@ -231,13 +236,22 @@ class SoundSystem():
             print(f"[SERVER][DROP][QUEUE-OVERFLOW] dropping seq={seq if seq is not None else '?'} (queue depth={current_queue_len}/{MAX_QUEUE_DEPTH})")
             return
         
+        # Enqueue mono restream (mean over all channels), chunked to BLOCKSIZE
+        try:
+            mono_series = np.mean(data, axis=0).astype(np.float32)
+            for i in range(0, len(mono_series), BLOCKSIZE):
+                mono_chunk = mono_series[i:i + BLOCKSIZE]
+                self.return_queue.append(mono_chunk)
+        except Exception as e:
+            print(f"[SERVER][RESTREAM] Failed to enqueue mono restream: {e}")
+        
         for speaker_id, speaker_audio in enumerate(data):
             speaker = list(self.streams.keys())[speaker_id]
             # Chunk into BLOCKSIZE
             for i in range(0, len(speaker_audio), BLOCKSIZE):
                 chunk = speaker_audio[i:i + BLOCKSIZE]
                 self.streams[speaker].queue.append(chunk)
-
+        
         self.logger.info("Playing")
         t1 = time_module.perf_counter()
         buf_secs = self.get_current_buffer_time()

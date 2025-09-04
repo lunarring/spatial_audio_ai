@@ -7,6 +7,7 @@ import numpy as np
 import struct  # For parsing custom UDP headers
 import threading
 import json
+import traceback
 from spatial_audio_ai.config import UDP_BUFFER_DEPTH, get_profile_queue_depth, ALLOWED_PROFILES, get_min_buffer_blocks
 from spatial_audio_ai.tools.numpysocket import FastNumpySocket
 from spatial_audio_ai.tools.sound_system import SoundSystem
@@ -17,6 +18,13 @@ try:
 except ImportError:
     ZMQ_AVAILABLE = False
     print("Warning: lunar_tools not available. ZMQ support disabled.")
+
+# Optional pyzmq for PUB/SUB restream
+try:
+    import zmq
+    ZMQ_PUB_AVAILABLE = True
+except ImportError:
+    ZMQ_PUB_AVAILABLE = False
 
 # Create logger
 logger = logging.getLogger("sound server")
@@ -210,7 +218,10 @@ class SoundServer:
         log_level=logging.WARNING,
         mock_mode=False,
         verbose=False,
-        enable_zmq=True
+        enable_zmq=True,
+        enable_restream=False,
+        restream_host=None,
+        restream_port=6000
     ):
         self.host = host
         self.port = port
@@ -223,11 +234,60 @@ class SoundServer:
         self.zmq_clients = set()
         self.zmq_seq_map = {}
         self._stop_event = threading.Event()
+        # Restream config
+        self.enable_restream = enable_restream
+        self.restream_host = restream_host or host
+        self.restream_port = restream_port
+        self._restream_thread = None
+        self._restream_ctx = None
+        self._restream_sock = None
     
     def start(self):
         """Start the dual-protocol sound server (UDP + ZMQ)"""
         # Only initialize SoundSystem when server is started
         sound_system = SoundSystem(self.log_level, mock_mode=self.mock_mode, verbose=self.verbose)
+
+        # Start ZMQ PUB restreamer (mean over channels) if enabled
+        if self.enable_restream:
+            if not ZMQ_PUB_AVAILABLE:
+                print("[RESTREAM][ZMQ] pyzmq not installed; restream disabled")
+            else:
+                try:
+                    self._restream_ctx = zmq.Context(io_threads=1)
+                    self._restream_sock = self._restream_ctx.socket(zmq.PUB)
+                    bind_addr = f"tcp://{self.restream_host}:{self.restream_port}"
+                    self._restream_sock.setsockopt(zmq.SNDHWM, 100)
+                    self._restream_sock.bind(bind_addr)
+                    print(f"[RESTREAM][ZMQ] PUB bound on {bind_addr}")
+                    def _restream_loop():
+                        seq = 0
+                        while True:
+                            try:
+                                if self._stop_event.is_set():
+                                    break
+                                if hasattr(sound_system, 'return_queue') and len(sound_system.return_queue) > 0:
+                                    block = sound_system.return_queue.popleft()
+                                    msg = {
+                                        "seq": int(seq),
+                                        "timestamp": time_module.perf_counter(),
+                                        "shape": [int(block.shape[0])],
+                                        "dtype": "float32",
+                                        "data": block.tolist()
+                                    }
+                                    self._restream_sock.send_multipart([b"restream", json.dumps(msg).encode('utf-8')])
+                                    seq += 1
+                                else:
+                                    time_module.sleep(0.001)
+                            except Exception as e:
+                                print(f"[RESTREAM][ZMQ] Error in restream loop: {e}")
+                                traceback.print_exc()
+                                time_module.sleep(0.01)
+                    self._restream_thread = threading.Thread(target=_restream_loop, daemon=True, name="ZMQ-Restream")
+                    self._restream_thread.start()
+                except Exception as e:
+                    print(f"[RESTREAM][ZMQ] Failed to start PUB: {e}")
+                    traceback.print_exc()
+                    self.enable_restream = False
 
         # Initialize ZMQ server if enabled
         if self.enable_zmq:
@@ -368,6 +428,9 @@ def main():
     parser.add_argument('--zmq-port', type=int, default=5556, help='ZMQ port number (default: 5556)')
     parser.add_argument('--no-zmq', action='store_true', help='Disable ZMQ support (UDP only)')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output for client connections')
+    parser.add_argument('--restream', action='store_true', help='Enable ZMQ PUB restream of mono (mean over channels)')
+    parser.add_argument('--restream-host', default=None, help='Bind host for ZMQ PUB (default: host)')
+    parser.add_argument('--restream-port', type=int, default=6000, help='ZMQ PUB port for restream (default: 6000)')
     args = parser.parse_args()
     
     server = SoundServer(
@@ -376,9 +439,17 @@ def main():
         zmq_port=args.zmq_port,
         mock_mode=args.mock, 
         verbose=args.verbose,
-        enable_zmq=not args.no_zmq
+        enable_zmq=not args.no_zmq,
+        enable_restream=args.restream,
+        restream_host=args.restream_host or args.host,
+        restream_port=args.restream_port
     )
-    server.start()
+    
+    try:
+        server.start()
+    except KeyboardInterrupt:
+        print("Shutting down server...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
