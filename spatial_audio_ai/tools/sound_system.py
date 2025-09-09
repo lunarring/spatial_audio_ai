@@ -28,7 +28,7 @@ class StereoChannels(IntEnum):
     RIGHT = 1
 
 class StreamManager():
-    def __init__(self, device : int, samplerate : int, stereo_channel_idx : int, verbose : bool = False) -> None:
+    def __init__(self, device : int, samplerate : int, stereo_channel_idx : int, verbose : bool = False, coordinator=None, stream_id: str = None) -> None:
         self.device = device
         self.samplerate = samplerate
         self.stereo_channel_idx = stereo_channel_idx
@@ -46,6 +46,9 @@ class StreamManager():
         
         # Underrun counter for diagnostics
         self.underruns = 0
+        # Global playback coordinator (optional)
+        self.coordinator = coordinator
+        self.stream_id = stream_id
 
     def set_min_buffer_blocks(self, min_blocks: int):
         """Set minimum buffer blocks required before starting playback"""
@@ -82,28 +85,40 @@ class StreamManager():
         
         # Check if we have enough buffer to start/continue playback
         current_queue_len = len(self.queue)
+        # Inform coordinator of current queue level
+        if self.coordinator is not None and self.stream_id is not None:
+            self.coordinator.update_queue_len(self.stream_id, current_queue_len)
         
-        # If we haven't started playback yet, wait for minimum buffer
-        if not self.playback_started:
-            if current_queue_len >= self.min_buffer_blocks:
-                self.playback_started = True
-                if self.verbose:
-                    print(f"[STREAM] Playback started with {current_queue_len} blocks buffer")
-            else:
-                # Not enough buffer yet - play silence and wait
-                audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
-                outdata[:] = audio_to_play
+        # Global start gating via coordinator (if present)
+        if self.coordinator is not None:
+            if not self.coordinator.should_play():
+                # Not ready globally – output silence and wait
+                outdata[:] = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
                 if self.verbose and current_queue_len > 0:
-                    print(f"[STREAM] Buffering: {current_queue_len}/{self.min_buffer_blocks} blocks")
+                    print(f"[STREAM][GATE] Buffering (global): {current_queue_len}/{self.coordinator.min_buffer_blocks} blocks")
                 return
+        else:
+            # Local start gating (legacy behavior)
+            if not self.playback_started:
+                if current_queue_len >= self.min_buffer_blocks:
+                    self.playback_started = True
+                    if self.verbose:
+                        print(f"[STREAM] Playback started with {current_queue_len} blocks buffer")
+                else:
+                    outdata[:] = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
+                    if self.verbose and current_queue_len > 0:
+                        print(f"[STREAM] Buffering: {current_queue_len}/{self.min_buffer_blocks} blocks")
+                    return
         
         # Check for buffer underrun during playback
         if current_queue_len == 0:
             # Buffer underrun - stop playback and require rebuilding buffer
             self.playback_started = False
-            audio_to_play = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
-            outdata[:] = audio_to_play
+            outdata[:] = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
             self.underruns += 1
+            # Notify coordinator so all streams pause and re-sync
+            if self.coordinator is not None and self.stream_id is not None:
+                self.coordinator.report_underrun(self.stream_id)
             if not getattr(self, '_underflow_logged', False):
                 print(f"[SERVER][UNDERFLOW] Buffer underrun - stopping playback, will restart when {self.min_buffer_blocks} blocks available (underruns={self.underruns})")
                 self._underflow_logged = True
@@ -131,6 +146,69 @@ class StreamManager():
                 health = self.get_buffer_health()
                 print(f"[AUDIO CB] Queue: {current_queue_len} blocks | Health: {health}")
                 self._last_logged_queue_len = current_queue_len
+
+
+class PlaybackCoordinator:
+    """Coordinate start/pause across all output streams to keep them in sync.
+
+    - Holds per-stream queue lengths
+    - Gates playback until all queues have at least min_buffer_blocks
+    - When any stream underruns, pauses all streams and waits for rebuffer
+    """
+    def __init__(self, min_buffer_blocks: int = 8, verbose: bool = False) -> None:
+        self.min_buffer_blocks = min_buffer_blocks
+        self.verbose = verbose
+        self._queue_lengths: Dict[str, int] = {}
+        self._registered: set[str] = set()
+        self._global_paused = True  # Start paused until all queues are primed
+        self._last_state_log = 0
+
+    def register_stream(self, stream_id: str) -> None:
+        self._registered.add(stream_id)
+        self._queue_lengths.setdefault(stream_id, 0)
+
+    def set_min_buffer_blocks(self, min_blocks: int) -> None:
+        self.min_buffer_blocks = min_blocks
+        # Changing min buffer forces a global pause until re-primed
+        self._global_paused = True
+        if self.verbose:
+            print(f"[COORD] min_buffer_blocks set to {min_blocks}, pausing until rebuffered")
+
+    def update_queue_len(self, stream_id: str, qlen: int) -> None:
+        if stream_id in self._registered:
+            self._queue_lengths[stream_id] = qlen
+
+    def report_underrun(self, stream_id: str) -> None:
+        # Any underrun triggers a global rebuffer pause
+        self._global_paused = True
+        if self.verbose:
+            print(f"[COORD] underrun on {stream_id} -> pausing globally")
+
+    def _all_streams_ready(self) -> bool:
+        if not self._registered:
+            return False
+        # All known streams must be at or above the threshold
+        for sid in self._registered:
+            if self._queue_lengths.get(sid, 0) < self.min_buffer_blocks:
+                return False
+        return True
+
+    def should_play(self) -> bool:
+        # If paused, check readiness; when ready, unpause atomically
+        if self._global_paused:
+            if self._all_streams_ready():
+                self._global_paused = False
+                if self.verbose:
+                    print(f"[COORD] all streams primed (>= {self.min_buffer_blocks} blocks). Starting playback.")
+        else:
+            # If any stream drops below 1 block (imminent underrun), proactively pause
+            for sid in self._registered:
+                if self._queue_lengths.get(sid, 0) == 0:
+                    self._global_paused = True
+                    if self.verbose:
+                        print(f"[COORD] {sid} queue hit 0 -> pausing for rebuffer")
+                    break
+        return not self._global_paused
 
     def start(self) -> None:
         # Configure stream based on latency mode
@@ -185,6 +263,8 @@ class SoundSystem():
         self.max_queue_depth = UDP_BUFFER_DEPTH
         # Mono restream queue (BLOCKSIZE-sized mono chunks)
         self.return_queue = deque()
+        # Global playback coordinator (gates start/pause across all streams)
+        self.coordinator = PlaybackCoordinator(min_buffer_blocks=8, verbose=self.verbose)
         
         if not mock_mode:
             try:
@@ -334,6 +414,9 @@ class SoundSystem():
             for stream_name, stream in self.streams.items():
                 if hasattr(stream, 'set_min_buffer_blocks'):
                     stream.set_min_buffer_blocks(min_blocks)
+            # Update global coordinator threshold
+            if hasattr(self, 'coordinator') and self.coordinator is not None:
+                self.coordinator.set_min_buffer_blocks(min_blocks)
             if self.verbose:
                 print(f"[SOUND_SYSTEM] Set minimum buffer to {min_blocks} blocks ({self._min_buffer_ms:.1f}ms) for all {len(self.streams)} streams")
 
@@ -349,7 +432,16 @@ class SoundSystem():
         "Initalize and start streams for each speaker in the config."
         streams = {}
         for speaker, scfg in self.config.items():
-            streams[speaker] = StreamManager(scfg["vistual_sound_card_id"], samplerate=SAMPLING_RATE, stereo_channel_idx=int(scfg["stereo_channel"]), verbose=self.verbose)
+            # Register and create a coordinated stream manager
+            self.coordinator.register_stream(speaker)
+            streams[speaker] = StreamManager(
+                scfg["vistual_sound_card_id"],
+                samplerate=SAMPLING_RATE,
+                stereo_channel_idx=int(scfg["stereo_channel"]),
+                verbose=self.verbose,
+                coordinator=self.coordinator,
+                stream_id=speaker
+            )
             streams[speaker].start()
         return streams        
 
