@@ -49,6 +49,12 @@ class StreamManager():
         # Global playback coordinator (optional)
         self.coordinator = coordinator
         self.stream_id = stream_id
+        # Per-stream delay compensation in blocks (applied at dequeue)
+        self.delay_blocks = 0
+
+    def set_delay_blocks(self, blocks: int) -> None:
+        # Clamp to reasonable range
+        self.delay_blocks = max(0, int(blocks))
 
     def set_min_buffer_blocks(self, min_blocks: int):
         """Set minimum buffer blocks required before starting playback"""
@@ -128,6 +134,13 @@ class StreamManager():
         if current_queue_len > 0:
             # Reset underflow flag when data is available
             self._underflow_logged = False
+            # Apply per-stream delay compensation by consuming extra queued blocks before output
+            if self.delay_blocks > 0 and len(self.queue) > self.delay_blocks:
+                # Drop delay_blocks-1 extra items to create output latency alignment
+                for _ in range(self.delay_blocks - 1):
+                    if len(self.queue) == 0:
+                        break
+                    _ = self.queue.popleft()
             audio_to_play = np.zeros((len(audio := self.queue.popleft()), 2), dtype=np.float32)
             audio_to_play[:, 1 - self.stereo_channel_idx] = audio
             remaining_samples_2 = len(audio) - self.index
@@ -241,6 +254,9 @@ class PlaybackCoordinator:
                     break
         return not self._global_paused
 
+    def is_paused(self) -> bool:
+        return self._global_paused
+
 
 
 class MockStreamManager():
@@ -266,6 +282,8 @@ class SoundSystem():
         self.return_queue = deque()
         # Global playback coordinator (gates start/pause across all streams)
         self.coordinator = PlaybackCoordinator(min_buffer_blocks=8, verbose=self.verbose)
+        # Per-stream delay compensation table (in blocks)
+        self.stream_delays: Dict[str, int] = {}
         
         if not mock_mode:
             try:
@@ -403,6 +421,12 @@ class SoundSystem():
         """Set a new maximum queue depth for adaptive buffering."""
         self.max_queue_depth = depth
 
+    def set_stream_delay_blocks(self, speaker: str, blocks: int) -> None:
+        """Set per-stream delay compensation in blocks and apply immediately if stream exists."""
+        self.stream_delays[speaker] = max(0, int(blocks))
+        if hasattr(self, 'streams') and speaker in self.streams:
+            self.streams[speaker].set_delay_blocks(self.stream_delays[speaker])
+
     def set_min_buffer_blocks(self, min_blocks: int) -> None:
         """Set minimum buffer blocks for all streams to prevent underflows on unstable networks."""
         if self.mock_mode:
@@ -443,6 +467,9 @@ class SoundSystem():
                 coordinator=self.coordinator,
                 stream_id=speaker
             )
+            # Apply configured per-stream delay if present
+            if speaker in self.stream_delays:
+                streams[speaker].set_delay_blocks(self.stream_delays[speaker])
             streams[speaker].start()
         return streams        
 
