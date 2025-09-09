@@ -147,6 +147,37 @@ class StreamManager():
                 print(f"[AUDIO CB] Queue: {current_queue_len} blocks | Health: {health}")
                 self._last_logged_queue_len = current_queue_len
 
+    def start(self) -> None:
+        # Configure stream based on latency mode
+        stream_params = {
+            'device': self.device,
+            'samplerate': self.samplerate,
+            'channels': 2,
+            'callback': self.callback,
+            'blocksize': BLOCKSIZE
+        }
+        
+        if AUDIO_LATENCY_MODE == 'ultra':
+            # Ultra-low latency: most aggressive settings
+            stream_params.update({
+                'latency': 'low',
+                'clip_off': True,
+                'dither_off': True,
+                'never_drop_input': False,
+                'prime_output_buffers_using_stream_callback': True
+            })
+        elif AUDIO_LATENCY_MODE == 'low':
+            # Low latency: balanced settings
+            stream_params.update({
+                'latency': 'low',
+                'clip_off': True,
+                'dither_off': False  # Keep dithering for quality
+            })
+        # 'stable' mode uses default settings
+        
+        self.stream = sd.OutputStream(**stream_params)
+        self.stream.start()
+
 
 class PlaybackCoordinator:
     """Coordinate start/pause across all output streams to keep them in sync.
@@ -210,36 +241,6 @@ class PlaybackCoordinator:
                     break
         return not self._global_paused
 
-    def start(self) -> None:
-        # Configure stream based on latency mode
-        stream_params = {
-            'device': self.device,
-            'samplerate': self.samplerate,
-            'channels': 2,
-            'callback': self.callback,
-            'blocksize': BLOCKSIZE
-        }
-        
-        if AUDIO_LATENCY_MODE == 'ultra':
-            # Ultra-low latency: most aggressive settings
-            stream_params.update({
-                'latency': 'low',
-                'clip_off': True,
-                'dither_off': True,
-                'never_drop_input': False,
-                'prime_output_buffers_using_stream_callback': True
-            })
-        elif AUDIO_LATENCY_MODE == 'low':
-            # Low latency: balanced settings
-            stream_params.update({
-                'latency': 'low',
-                'clip_off': True,
-                'dither_off': False  # Keep dithering for quality
-            })
-        # 'stable' mode uses default settings
-        
-        self.stream = sd.OutputStream(**stream_params)
-        self.stream.start()
 
 
 class MockStreamManager():
