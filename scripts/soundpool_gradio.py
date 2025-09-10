@@ -65,7 +65,8 @@ playback_thread = None
 playback_stop_flag = False
 
 def play_spatial_soundpool(
-    dir_path, p_inject, box_size, volume, duration_minutes,
+    dir_path, box_size, volume, duration_minutes,
+    injection_min_interval_s, injection_max_interval_s,
     use_circular, circular_radius_min, circular_radius_max,
     circular_speed_min, circular_speed_max,
     circular_angle_min, circular_angle_max,
@@ -80,7 +81,6 @@ def play_spatial_soundpool(
     player = SpatialSoundPoolPlayer(
         name_space=name_space,
         base_dir=base_dir,
-        p_inject=p_inject,
         box_size=box_size,
         volume=volume,
         use_circular=use_circular,
@@ -97,11 +97,16 @@ def play_spatial_soundpool(
             player.start_initial_sound()
             start_time = time.time()
             duration_seconds = duration_minutes * 60
+            # Schedule next injection between min/max interval
+            next_inject_after = random.uniform(injection_min_interval_s, injection_max_interval_s)
+            next_injection_ts = start_time + next_inject_after
             for j, chunk in enumerate(player.scene.run()):
                 if playback_stop_flag:
                     print("Playback stopped by user (flag).")
                     break
-                if np.random.rand() < player.p_inject:
+                # Time-based injection schedule
+                now_ts = time.time()
+                if now_ts >= next_injection_ts:
                     player.wav_files = [
                         f for f in os.listdir(player.dir_scan)
                         if f.endswith('.wav')
@@ -114,6 +119,9 @@ def play_spatial_soundpool(
                     player.scene.register(SO_Playback(sound, position=position))
                     print(f"Injected: {random_file} at position: "
                           f"({position[0]:.1f}, {position[1]:.1f})")
+                    # Schedule next injection
+                    next_inject_after = random.uniform(injection_min_interval_s, injection_max_interval_s)
+                    next_injection_ts = now_ts + next_inject_after
                 chunk = np.clip(chunk, -1, 1)
                 player.sound_streamer.send(chunk)
                 
@@ -192,11 +200,17 @@ with gr.Blocks() as demo:
             label="Sound Pool Directory",
             placeholder="Paste output directory from above"
         )
-        p_inject = gr.Slider(0, 1, value=0.3, label="Injection Probability")
+        # Removed probability injection; use time-based scheduling
         box_size = gr.Slider(5, 30, value=15, label="Spatial Area Size")
         volume = gr.Slider(0, 1, value=0.2, label="Volume")
         duration_minutes = gr.Number(
             label="Playback Duration (minutes)", value=2, precision=0
+        )
+        injection_min_interval_s = gr.Slider(
+            0.1, 10, value=1, step=0.1, label="Min seconds between injections"
+        )
+        injection_max_interval_s = gr.Slider(
+            0.1, 15, value=6, step=0.1, label="Max seconds between injections"
         )
         use_circular = gr.Checkbox(
             label="Use Circular Moving Sound Objects", value=False
@@ -238,7 +252,8 @@ with gr.Blocks() as demo:
         play_btn.click(
             play_spatial_soundpool,
             inputs=[
-                dir_input, p_inject, box_size, volume, duration_minutes,
+                dir_input, box_size, volume, duration_minutes,
+                injection_min_interval_s, injection_max_interval_s,
                 use_circular, circular_radius_min, circular_radius_max,
                 circular_speed_min, circular_speed_max,
                 circular_angle_min, circular_angle_max,

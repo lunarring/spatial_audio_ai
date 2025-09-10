@@ -330,7 +330,8 @@ class SpatialSoundPoolPlayer:
         self.spatializer = Spatializer()
         self.scene = Scene(self.spatializer)
         self.scene.volume = volume
-        self.sound_streamer = SoundNetworkStreamer()
+        # Use 'low' profile for streaming (UDP, lower latency)
+        self.sound_streamer = SoundNetworkStreamer(profile='stable')
         # Check if sound pool exists
         if not os.path.exists(self.dir_scan):
             raise FileNotFoundError(
