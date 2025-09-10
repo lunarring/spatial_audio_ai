@@ -308,6 +308,9 @@ class SpatialSoundPoolPlayer:
         from spatial_audio_ai.tools.spatializer import (
             Spatializer, Scene
         )
+        from spatial_audio_ai.tools.sound_objects import (
+            SO_Playback, SO_PlaybackCircularMove
+        )
         from spatial_audio_ai.tools.client import SoundNetworkStreamer
         self.name_space = name_space
         self.base_dir = base_dir
@@ -347,7 +350,7 @@ class SpatialSoundPoolPlayer:
     def start_initial_sound(self):
         """Start playback with one initial sound"""
         import soundfile as sf
-        from spatial_audio_ai.tools.spatializer import SO_Playback, SO_PlaybackCircularMove
+        from spatial_audio_ai.tools.sound_objects import SO_Playback, SO_PlaybackCircularMove
         sound = sf.read(f"{self.dir_scan}{self.wav_files[0]}")[0]
         if self.use_circular:
             radius = np.random.uniform(*self.circular_radius_range)
@@ -384,9 +387,10 @@ class SpatialSoundPoolPlayer:
         """
         import soundfile as sf
         import time
-        from spatial_audio_ai.tools.spatializer import (
-            SO_Playback, SO_PlaybackCircularMove, CHUNKSIZE, SAMPLING_RATE
+        from spatial_audio_ai.tools.sound_objects import (
+            SO_Playback, SO_PlaybackCircularMove
         )
+        from spatial_audio_ai.config import CHUNKSIZE, SAMPLING_RATE
         self.start_initial_sound()
         start_time = time.time()
         duration_seconds = duration_minutes * 60

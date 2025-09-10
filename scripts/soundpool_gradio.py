@@ -11,9 +11,7 @@ from spatial_audio_ai.generators.stable_audio import (
     StableAudioOpenSmall, SoundPoolGenerator, SpatialSoundPoolPlayer
 )
 from spatial_audio_ai.tools.tools import apply_fade_in_out, save_sound
-from spatial_audio_ai.tools.spatializer import (
-    CHUNKSIZE, SAMPLING_RATE
-)
+from spatial_audio_ai.config import CHUNKSIZE, SAMPLING_RATE
 from spatial_audio_ai.tools.sound_objects import SO_Playback
 
 # Default prompts (hybrid/mixed)
