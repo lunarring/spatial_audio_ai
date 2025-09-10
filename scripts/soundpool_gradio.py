@@ -64,7 +64,62 @@ def generate_sounds(prompts, n_sounds, min_duration, max_duration,
 playback_thread = None
 playback_stop_flag = False
 
-def play_spatial_soundpool(
+class SpatialPlaybackController:
+    def __init__(self):
+        self.player = None
+        self.initialized = False
+    
+    def init(self,
+             dir_path, box_size, volume,
+             use_circular, circular_radius_min, circular_radius_max,
+             circular_speed_min, circular_speed_max,
+             circular_angle_min, circular_angle_max,
+             circular_direction, circular_center_x, circular_center_y,
+             circular_loop):
+        name_space = os.path.basename(dir_path)
+        base_dir = os.path.dirname(dir_path)
+        self.player = SpatialSoundPoolPlayer(
+            name_space=name_space,
+            base_dir=base_dir,
+            box_size=box_size,
+            volume=volume,
+            use_circular=use_circular,
+            circular_radius_range=(circular_radius_min, circular_radius_max),
+            circular_speed_range=(circular_speed_min, circular_speed_max),
+            circular_angle_range=(circular_angle_min, circular_angle_max),
+            circular_direction_choices=[circular_direction],
+            circular_center=np.array([circular_center_x, circular_center_y], dtype=float),
+            circular_loop=circular_loop
+        )
+        self.initialized = True
+    
+    def start_initial(self):
+        if not self.initialized:
+            raise RuntimeError("Controller not initialized")
+        self.player.start_initial_sound()
+
+def init_spatial_streaming(controller,
+    dir_path, box_size, volume,
+    use_circular, circular_radius_min, circular_radius_max,
+    circular_speed_min, circular_speed_max,
+    circular_angle_min, circular_angle_max,
+    circular_direction, circular_center_x, circular_center_y,
+    circular_loop,
+):
+    try:
+        controller.init(
+            dir_path, box_size, volume,
+            use_circular, circular_radius_min, circular_radius_max,
+            circular_speed_min, circular_speed_max,
+            circular_angle_min, circular_angle_max,
+            circular_direction, circular_center_x, circular_center_y,
+            circular_loop,
+        )
+        return controller, "Spatial streaming initialized."
+    except Exception as e:
+        return controller, f"Initialization failed: {e}"
+
+def play_spatial_soundpool(controller,
     dir_path, box_size, volume, duration_minutes,
     injection_min_interval_s, injection_max_interval_s,
     use_circular, circular_radius_min, circular_radius_max,
@@ -76,54 +131,52 @@ def play_spatial_soundpool(
 ):
     global playback_thread, playback_stop_flag
     playback_stop_flag = False
-    name_space = os.path.basename(dir_path)
-    base_dir = os.path.dirname(dir_path)
-    player = SpatialSoundPoolPlayer(
-        name_space=name_space,
-        base_dir=base_dir,
-        box_size=box_size,
-        volume=volume,
-        use_circular=use_circular,
-        circular_radius_range=(circular_radius_min, circular_radius_max),
-        circular_speed_range=(circular_speed_min, circular_speed_max),
-        circular_angle_range=(circular_angle_min, circular_angle_max),
-        circular_direction_choices=[circular_direction],
-        circular_center=np.array([circular_center_x, circular_center_y], dtype=float),
-        circular_loop=circular_loop
-    )
+    # Ensure streaming is initialized
+    if not controller or not controller.initialized:
+        _, init_msg = init_spatial_streaming(
+            controller,
+            dir_path, box_size, volume,
+            use_circular, circular_radius_min, circular_radius_max,
+            circular_speed_min, circular_speed_max,
+            circular_angle_min, circular_angle_max,
+            circular_direction, circular_center_x, circular_center_y,
+            circular_loop,
+        )
+        if not init_msg.startswith("Spatial streaming initialized"):
+            return init_msg
 
     def playback():
         try:
-            player.start_initial_sound()
+            controller.start_initial()
             start_time = time.time()
             duration_seconds = duration_minutes * 60
             # Schedule next injection between min/max interval
             next_inject_after = random.uniform(injection_min_interval_s, injection_max_interval_s)
             next_injection_ts = start_time + next_inject_after
-            for j, chunk in enumerate(player.scene.run()):
+            for j, chunk in enumerate(controller.player.scene.run()):
                 if playback_stop_flag:
                     print("Playback stopped by user (flag).")
                     break
                 # Time-based injection schedule
                 now_ts = time.time()
                 if now_ts >= next_injection_ts:
-                    player.wav_files = [
-                        f for f in os.listdir(player.dir_scan)
+                    controller.player.wav_files = [
+                        f for f in os.listdir(controller.player.dir_scan)
                         if f.endswith('.wav')
                     ]
-                    random_file = random.choice(player.wav_files)
-                    sound = sf.read(f"{player.dir_scan}{random_file}")[0]
+                    random_file = random.choice(controller.player.wav_files)
+                    sound = sf.read(f"{controller.player.dir_scan}{random_file}")[0]
                     position = np.random.uniform(
-                        -player.box_size, player.box_size, size=2
+                        -controller.player.box_size, controller.player.box_size, size=2
                     )
-                    player.scene.register(SO_Playback(sound, position=position))
+                    controller.player.scene.register(SO_Playback(sound, position=position))
                     print(f"Injected: {random_file} at position: "
                           f"({position[0]:.1f}, {position[1]:.1f})")
                     # Schedule next injection
                     next_inject_after = random.uniform(injection_min_interval_s, injection_max_interval_s)
                     next_injection_ts = now_ts + next_inject_after
                 chunk = np.clip(chunk, -1, 1)
-                player.sound_streamer.send(chunk)
+                controller.player.sound_streamer.send(chunk)
                 
                 # Use precise real-time timing
                 chunk_duration = CHUNKSIZE / SAMPLING_RATE
@@ -138,7 +191,7 @@ def play_spatial_soundpool(
                     print(f"Playback completed after {elapsed:.1f} seconds")
                     break
                 if j % 430 == 0:
-                    active_sounds = len(player.scene.sound_objects)
+                    active_sounds = len(controller.player.scene.sound_objects)
                     print(f"Time: {elapsed:.1f}s | "
                           f"Active sounds: {active_sounds}")
         except Exception as e:
@@ -170,8 +223,8 @@ with gr.Blocks() as demo:
     """
     )
     
-    # Create shared state for directory
-    dir_state = gr.State("")
+    # Controller state (persist across events)
+    controller_state = gr.State(SpatialPlaybackController())
     
     with gr.Tab("1. Generate Sound Pool"):
         prompts_box = gr.Textbox(
@@ -245,13 +298,29 @@ with gr.Blocks() as demo:
         circular_loop = gr.Checkbox(
             label="Loop Circular Sound", value=True
         )
+        init_btn = gr.Button("Init Spatial Streaming")
         play_btn = gr.Button("Start Spatial Playback")
         stop_btn = gr.Button("Stop Playback")
         playback_status = gr.Textbox(label="Playback Status", interactive=False)
 
+        init_btn.click(
+            init_spatial_streaming,
+            inputs=[
+                controller_state,
+                dir_input, box_size, volume,
+                use_circular, circular_radius_min, circular_radius_max,
+                circular_speed_min, circular_speed_max,
+                circular_angle_min, circular_angle_max,
+                circular_direction, circular_center_x, circular_center_y,
+                circular_loop
+            ],
+            outputs=[controller_state, playback_status]
+        )
+
         play_btn.click(
             play_spatial_soundpool,
             inputs=[
+                controller_state,
                 dir_input, box_size, volume, duration_minutes,
                 injection_min_interval_s, injection_max_interval_s,
                 use_circular, circular_radius_min, circular_radius_max,
