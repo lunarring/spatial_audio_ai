@@ -152,7 +152,8 @@ class EarsSpatializer:
             self.last_active_speakers = closest_speakers
 
             # Volume increases as sound approaches ears (stronger near, weaker far)
-            base_volume = np.clip(1.0 / (1e-2 + 0.3 * d_norm), 0.05, 1.0)
+            # Purely ear-distance based (independent of speaker geometry)
+            base_volume = np.clip(1.0 / (1e-3 + d_norm), 0.1, 1.0)
 
             # Compute perpendicular distances for the two speakers
             perp_distances = []
@@ -181,12 +182,13 @@ class EarsSpatializer:
                     w1 = (inv[1] / s) if len(inv) > 1 else 0.0
                     weights = [w0, w1]
 
-            # Apply distance attenuation from sound to each speaker and scale by base volume and weights
+            # Normalize weights to sum to 1 (energy distribution independent of geometry)
+            wsum = max(sum(weights), eps)
+            weights = [w / wsum for w in weights]
+
+            # Apply only ear-distance scaling; do not attenuate by speaker distance
             for i, speaker_idx in enumerate(closest_speakers):
-                sp = self.speaker_positions[speaker_idx]
-                distance_to_speaker_from_sound = np.linalg.norm(sp - sm.position)
-                speaker_attenuation = 1.0 / (1.0 + self.attenuation_scaler * distance_to_speaker_from_sound)
-                attenuation[speaker_idx] = weights[i] * base_volume * speaker_attenuation
+                attenuation[speaker_idx] = weights[i] * base_volume
         
         # Store raw gains and normalized volumes for visualization
         self.last_speaker_gains_raw = attenuation.copy()
