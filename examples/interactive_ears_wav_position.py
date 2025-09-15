@@ -15,11 +15,11 @@ from spatial_audio_ai.tools.spatializer import EarsSpatializer, CHUNKSIZE, SAMPL
 pygame.init()
 
 # Window settings
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 600
-SPEAKER_RADIUS = 8
-SOUND_RADIUS = 12
-EARS_RADIUS = 10
+WINDOW_WIDTH = 1200
+WINDOW_HEIGHT = 900
+SPEAKER_RADIUS = 12
+SOUND_RADIUS = 15
+EARS_RADIUS = 12
 
 # Colors
 BLACK = (0, 0, 0)
@@ -69,7 +69,7 @@ def pygame_thread():
     global sound_x, sound_y, ears_x, ears_y, running
     
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    pygame.display.set_caption("Interactive Ears+WAV Positioning - Left click: sound, Right click: ears")
+    pygame.display.set_caption("Ears+WAV: Left click = sound, Right click = ears")
     clock = pygame.time.Clock()
     
     # Get speaker positions for visualization
@@ -102,17 +102,34 @@ def pygame_thread():
         # Draw everything
         screen.fill(BLACK)
         
-        # Draw speakers
+        # Draw speakers with explicit selection and attenuation bars
+        speaker_volumes = spatializer.get_speaker_volumes()
+        active_indices = set(spatializer.get_active_speakers())
         for i, pos in enumerate(speaker_positions_screen):
+            volume = float(speaker_volumes[i])
+
+            # Base speaker icon
             pygame.draw.circle(screen, BLUE, pos, SPEAKER_RADIUS)
-            # Add speaker number
-            font = pygame.font.Font(None, 24)
-            text = font.render(str(i + 1), True, WHITE)
-            text_rect = text.get_rect(center=(pos[0], pos[1] - SPEAKER_RADIUS - 15))
-            screen.blit(text, text_rect)
+            pygame.draw.circle(screen, WHITE, pos, max(3, int(SPEAKER_RADIUS * 0.3)))
+
+            if i in active_indices:
+                # Highlight ring for selected speakers
+                highlight_radius = SPEAKER_RADIUS + 8
+                pygame.draw.circle(screen, (255, 200, 0), pos, highlight_radius, width=3)
+
+                # Vertical attenuation bar above the speaker
+                bar_height = int(80 * volume)  # scale 0..1 -> 0..80px
+                bar_width = 10
+                bar_x = pos[0] - bar_width // 2
+                bar_y_top = pos[1] - SPEAKER_RADIUS - 10 - bar_height
+                bar_y_bottom = pos[1] - SPEAKER_RADIUS - 10
+                # Background bar track
+                pygame.draw.rect(screen, (60, 60, 60), (bar_x, bar_y_top, bar_width, 80))
+                # Filled portion
+                pygame.draw.rect(screen, (255, 80, 0), (bar_x, bar_y_bottom - bar_height, bar_width, bar_height))
         
         # Draw connection line from ears to sound
-        pygame.draw.line(screen, GRAY, (ears_x, ears_y), (sound_x, sound_y), 2)
+        pygame.draw.line(screen, GRAY, (ears_x, ears_y), (sound_x, sound_y), 3)
         
         # Extend the line beyond the sound to show direction
         if abs(sound_x - ears_x) > 1 or abs(sound_y - ears_y) > 1:
@@ -121,51 +138,22 @@ def pygame_thread():
             dy = sound_y - ears_y
             length = np.sqrt(dx*dx + dy*dy)
             if length > 0:
-                # Extend the line by 200 pixels
-                extend_factor = 200 / length
+                # Extend the line by 300 pixels
+                extend_factor = 300 / length
                 end_x = sound_x + dx * extend_factor
                 end_y = sound_y + dy * extend_factor
                 # Clamp to screen bounds
                 end_x = max(0, min(WINDOW_WIDTH, end_x))
                 end_y = max(0, min(WINDOW_HEIGHT, end_y))
-                pygame.draw.line(screen, YELLOW, (sound_x, sound_y), (end_x, end_y), 1)
+                pygame.draw.line(screen, YELLOW, (sound_x, sound_y), (end_x, end_y), 2)
         
         # Draw sound position (where file is playing)
         pygame.draw.circle(screen, PURPLE, (sound_x, sound_y), SOUND_RADIUS)
+        pygame.draw.circle(screen, WHITE, (sound_x, sound_y), max(4, int(SOUND_RADIUS * 0.3)))  # White center
         
         # Draw ears position
         pygame.draw.circle(screen, GREEN, (ears_x, ears_y), EARS_RADIUS)
-        
-        # Draw instructions
-        font = pygame.font.Font(None, 36)
-        instructions = [
-            "Left click to position monster.wav",
-            "Right click to position ears",
-            "Blue circles = Speakers",
-            "Purple circle = Sound position",
-            "Green circle = Ears position",
-            "Gray line = Ears to sound vector",
-            "Yellow line = Extended direction",
-            "Press ESC or close window to quit"
-        ]
-        
-        for i, instruction in enumerate(instructions):
-            text = font.render(instruction, True, WHITE)
-            screen.blit(text, (10, 10 + i * 30))
-        
-        # Show current positions
-        pos_text = f"Sound: ({current_sound_pos[0]:.2f}, {current_sound_pos[1]:.2f})"
-        ears_text = f"Ears: ({current_ears_pos[0]:.2f}, {current_ears_pos[1]:.2f})"
-        distance = np.linalg.norm(current_sound_pos - current_ears_pos)
-        distance_text = f"Distance: {distance:.2f}"
-        
-        pos_surface = font.render(pos_text, True, PURPLE)
-        ears_surface = font.render(ears_text, True, GREEN)
-        distance_surface = font.render(distance_text, True, YELLOW)
-        
-        screen.blit(pos_surface, (10, WINDOW_HEIGHT - 100))
-        screen.blit(ears_surface, (10, WINDOW_HEIGHT - 70))
-        screen.blit(distance_surface, (10, WINDOW_HEIGHT - 40))
+        pygame.draw.circle(screen, WHITE, (ears_x, ears_y), max(4, int(EARS_RADIUS * 0.3)))  # White center
         
         pygame.display.flip()
         clock.tick(60)

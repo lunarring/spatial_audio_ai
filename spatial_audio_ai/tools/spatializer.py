@@ -97,91 +97,136 @@ class EarsSpatializer:
         self.ears_position = ears_position
         self.subwoofer_last_channel_auto_mode = subwoofer_last_channel_auto_mode
         self.attenuation_scaler = 1.0
+        self.last_active_speakers = []  # Track which speakers are playing
+        self.last_speaker_volumes = np.zeros(len(self.speaker_positions))  # Track speaker volumes
 
     def set_ears_position(self, ears_position):
         """Set the position of the ears in space"""
         self.ears_position = ears_position
+    
+    def get_active_speakers(self):
+        """Get list of currently active speaker indices"""
+        return self.last_active_speakers
+    
+    def get_speaker_volumes(self):
+        """Get current volume levels for all speakers (0-1 range)"""
+        return self.last_speaker_volumes.copy()
 
     def process(self, sm: SoundMessage):
         """
         Process a SoundMessage using ear-based spatialization.
         
         1. Compute vector d between sound position and ears position
-        2. Extend this vector and find the two closest speakers along this line
-        3. Play back only via these speakers with distance-based attenuation
+        2. Find speakers in the direction from ears toward sound
+        3. Volume increases as sound approaches ears
         """
         # Compute vector d from ears to sound
         d_vector = sm.position - self.ears_position
         d_norm = np.linalg.norm(d_vector)
         
+        # Calculate attenuation for all speakers (zero for non-selected ones)
+        attenuation = np.zeros(len(self.speaker_positions))
+        
         if d_norm < 1e-6:  # Handle case where sound is at ears position
-            # Use simple distance-based approach if sound is at ears
+            # Sound is at ears - very loud, use closest speakers
             distances = np.linalg.norm((self.speaker_positions - sm.position), axis=1)
-            attenuation = 1 / (1 + self.attenuation_scaler * distances)
-            buffer = np.expand_dims(attenuation, 1) * sm.sound
+            closest_indices = np.argsort(distances)[:2]
+            self.last_active_speakers = closest_indices.tolist()
+            
+            for speaker_idx in self.last_active_speakers:
+                attenuation[speaker_idx] = 1.0  # Maximum volume when at ears
         else:
             # Normalize the direction vector
             d_direction = d_vector / d_norm
             
-            # Find the two speakers closest to the extended vector line
-            closest_speakers = self._find_closest_speakers_on_line(
-                self.ears_position, d_direction, self.speaker_positions
+            # Find speakers using longitudinal position of the sound along the ears->sound ray
+            target_t = float(np.dot((sm.position - self.ears_position), d_direction))
+            closest_speakers = self._find_speakers_in_direction(
+                self.ears_position, d_direction, self.speaker_positions, target_t=target_t
             )
-            
-            # Calculate attenuation for all speakers (zero for non-selected ones)
-            attenuation = np.zeros(len(self.speaker_positions))
-            
+            self.last_active_speakers = closest_speakers
+
+            # Volume increases as sound approaches ears (stronger near, weaker far)
+            # Clipped for safety to [0.0, 1.0]
+            base_volume = np.clip(1.0 / (1e-2 + 0.3 * d_norm), 0.05, 1.0)
+
+            # Build raw gains for the two selected speakers using alignment and proximity to the sound
+            raw_gains = []
             for speaker_idx in closest_speakers:
-                # Distance from sound to this speaker
                 speaker_pos = self.speaker_positions[speaker_idx]
-                distance_to_speaker = np.linalg.norm(speaker_pos - sm.position)
-                
-                # Distance-based attenuation (same formula as original)
-                speaker_attenuation = 1 / (1 + self.attenuation_scaler * distance_to_speaker)
-                
-                # Additional attenuation based on ear-to-sound distance
-                ear_distance_factor = 1 / (1 + self.attenuation_scaler * d_norm * 0.5)
-                
-                attenuation[speaker_idx] = speaker_attenuation * ear_distance_factor
-            
-            buffer = np.expand_dims(attenuation, 1) * sm.sound
+                # Alignment of speaker direction with ears->sound
+                to_speaker_vec = speaker_pos - self.ears_position
+                to_speaker_norm = np.linalg.norm(to_speaker_vec) + 1e-9
+                to_speaker_dir = to_speaker_vec / to_speaker_norm
+                alignment = max(0.0, float(np.dot(d_direction, to_speaker_dir)))  # [0..1]
+
+                # Proximity of speaker to the sound source
+                distance_to_speaker_from_sound = np.linalg.norm(speaker_pos - sm.position)
+                proximity = 1.0 / (1e-3 + distance_to_speaker_from_sound)  # larger when closer
+
+                # Combine (weight alignment a bit stronger)
+                raw_gain = (alignment ** 1.5) * proximity
+                raw_gains.append(raw_gain)
+
+            raw_gains = np.array(raw_gains, dtype=float)
+            sum_raw = float(np.sum(raw_gains)) + 1e-9
+
+            # Normalize such that the total output power roughly follows base_volume
+            norm_factor = base_volume / sum_raw
+            for i, speaker_idx in enumerate(closest_speakers):
+                attenuation[speaker_idx] = raw_gains[i] * norm_factor
+        
+        # Store current speaker volumes for visualization (normalize to 0..1 by max for clarity)
+        vis = attenuation.copy()
+        max_val = float(np.max(vis)) if vis.size > 0 else 0.0
+        if max_val > 0:
+            vis = vis / max_val
+        self.last_speaker_volumes = vis
+        
+        buffer = np.expand_dims(attenuation, 1) * sm.sound
         
         if self.subwoofer_last_channel_auto_mode:
             buffer = np.append(buffer, np.expand_dims(np.mean(buffer, axis=0), axis=0), axis=0)
         
         return buffer
     
-    def _find_closest_speakers_on_line(self, line_start, line_direction, speaker_positions):
+    def _find_speakers_in_direction(self, ears_pos, direction, speaker_positions, target_t=None):
         """
-        Find the two speakers that are closest to the extended line from ears through sound.
-        
+        Choose the two speakers nearest to the ray from ears in the forward direction,
+        centered around the sound's longitudinal position along that ray.
+
         Args:
-            line_start: Starting point of the line (ears position)
-            line_direction: Normalized direction vector
-            speaker_positions: Array of speaker positions
-            
+            ears_pos: (2,) ears position
+            direction: (2,) unit vector from ears to sound
+            speaker_positions: (N,2) array
+            target_t: float, longitudinal position along the ray (ears + t*dir) of the sound; if None, uses 0
+
         Returns:
-            List of indices of the two closest speakers
+            List[int]: indices of two best speakers
         """
-        distances_to_line = []
-        
-        for i, speaker_pos in enumerate(speaker_positions):
-            # Vector from line start to speaker
-            to_speaker = speaker_pos - line_start
-            
-            # Project onto line direction to get the point on the line
-            projection_length = np.dot(to_speaker, line_direction)
-            projection_point = line_start + projection_length * line_direction
-            
-            # Distance from speaker to the line
-            distance_to_line = np.linalg.norm(speaker_pos - projection_point)
-            distances_to_line.append(distance_to_line)
-        
-        # Find the two speakers with minimum distance to the line
-        distances_array = np.array(distances_to_line)
-        closest_indices = np.argsort(distances_array)[:2]
-        
-        return closest_indices.tolist()
+        if target_t is None:
+            target_t = 0.0
+
+        candidates = []
+        for i, sp in enumerate(speaker_positions):
+            v = sp - ears_pos
+            t = float(np.dot(v, direction))
+            if t < 0:
+                continue  # behind ears, ignore
+            # perpendicular distance to ray
+            proj_point = ears_pos + t * direction
+            d_perp = float(np.linalg.norm(sp - proj_point))
+            # cost combines distance along-ray difference and perpendicular distance
+            cost = abs(t - target_t) + 0.4 * d_perp
+            candidates.append((i, cost))
+
+        if not candidates:
+            # fallback: closest two to ears
+            dists = np.linalg.norm(speaker_positions - ears_pos, axis=1)
+            return np.argsort(dists)[:2].tolist()
+
+        candidates.sort(key=lambda x: x[1])
+        return [candidates[0][0], candidates[1][0] if len(candidates) > 1 else candidates[0][0]]
 
 
 class Scene:
