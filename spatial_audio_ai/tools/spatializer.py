@@ -207,10 +207,11 @@ class EarsSpatializer:
     
     def _find_speakers_in_direction(self, ears_pos, direction, speaker_positions, target_t=None):
         """
-        Choose the two speakers with the smallest perpendicular distance to the
-        ears→sound line (ray) in the forward direction. Projection length (t)
-        is only used to discard speakers behind the ears; ranking is purely by
-        perpendicular distance to the line.
+        Select one speaker on each side of the ear->sound vector 'direction':
+        - best positive signed-angle (cross > 0)
+        - best negative signed-angle (cross < 0)
+        "closest" = smallest absolute angle (largest dot) within each side.
+        Prefer forward hemisphere (t >= 0). Fallbacks preserve behavior if a side is missing.
 
         Args:
             ears_pos: (2,) ears position
@@ -221,31 +222,71 @@ class EarsSpatializer:
         Returns:
             List[int]: indices of two best speakers
         """
-        candidates = []
+        forward_pos = []  # (idx, dot) with cross > 0 and t>=0
+        forward_neg = []  # (idx, dot) with cross < 0 and t>=0
+        any_pos = []      # (idx, dot) with cross > 0
+        any_neg = []      # (idx, dot) with cross < 0
         for i, sp in enumerate(speaker_positions):
             v = sp - ears_pos
+            n = float(np.linalg.norm(v))
+            if n < 1e-9:
+                continue
+            dir_s = v / n
+            dot = float(np.dot(direction, dir_s))  # cos(theta)
+            # forward/back check
             t = float(np.dot(v, direction))
-            if t < 0:
-                continue  # behind ears, ignore
-            proj_point = ears_pos + t * direction
-            d_perp = float(np.linalg.norm(sp - proj_point))
-            candidates.append((i, d_perp))
+            # signed side via 2D cross (z-component)
+            cross_z = direction[0] * dir_s[1] - direction[1] * dir_s[0]
+            if cross_z > 0:
+                any_pos.append((i, dot))
+                if t >= 0:
+                    forward_pos.append((i, dot))
+            elif cross_z < 0:
+                any_neg.append((i, dot))
+                if t >= 0:
+                    forward_neg.append((i, dot))
 
-        if not candidates:
-            # Fallback: if everything is behind (rare), use global perpendicular distance w.r.t. infinite line
-            # Compute to entire line without the t>=0 constraint
-            all_perp = []
+        def best_by_dot(cands):
+            if not cands:
+                return None
+            cands.sort(key=lambda x: x[1], reverse=True)
+            return cands[0][0]
+
+        # Try to pick one from each side in the forward hemisphere
+        idx_pos = best_by_dot(forward_pos)
+        idx_neg = best_by_dot(forward_neg)
+
+        # If a side is missing, allow behind-ear candidates to fill
+        if idx_pos is None:
+            idx_pos = best_by_dot(any_pos)
+        if idx_neg is None:
+            idx_neg = best_by_dot(any_neg)
+
+        # If still missing, fallback to the globally best angles regardless of side
+        if idx_pos is None and idx_neg is None:
+            # choose two arbitrary closest by angle (dot)
+            all_cands = []
             for i, sp in enumerate(speaker_positions):
                 v = sp - ears_pos
-                t_any = float(np.dot(v, direction))
-                proj_point = ears_pos + t_any * direction
-                d_perp_any = float(np.linalg.norm(sp - proj_point))
-                all_perp.append((i, d_perp_any))
-            all_perp.sort(key=lambda x: x[1])
-            return [all_perp[0][0], all_perp[1][0] if len(all_perp) > 1 else all_perp[0][0]]
+                n = float(np.linalg.norm(v))
+                if n < 1e-9:
+                    continue
+                dir_s = v / n
+                dot = float(np.dot(direction, dir_s))
+                all_cands.append((i, dot))
+            if not all_cands:
+                return [0, 0]
+            all_cands.sort(key=lambda x: x[1], reverse=True)
+            if len(all_cands) == 1:
+                return [all_cands[0][0], all_cands[0][0]]
+            return [all_cands[0][0], all_cands[1][0]]
 
-        candidates.sort(key=lambda x: x[1])
-        return [candidates[0][0], candidates[1][0] if len(candidates) > 1 else candidates[0][0]]
+        # If only one side available, duplicate to preserve two outputs
+        if idx_pos is None:
+            return [idx_neg, idx_neg]
+        if idx_neg is None:
+            return [idx_pos, idx_pos]
+        return [idx_pos, idx_neg]
 
 
 class Scene:
