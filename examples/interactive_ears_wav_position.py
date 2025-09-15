@@ -64,7 +64,7 @@ def _screen_to_real_coords(screen_x, screen_y):
     
     return np.array([real_x, real_y])
 
-def pygame_thread():
+def pygame_thread(shared_spatializer):
     """Handle pygame events and drawing in a separate thread"""
     global sound_x, sound_y, ears_x, ears_y, running
     
@@ -72,9 +72,9 @@ def pygame_thread():
     pygame.display.set_caption("Ears+WAV: Left click = sound, Right click = ears")
     clock = pygame.time.Clock()
     
-    # Get speaker positions for visualization
-    spatializer = EarsSpatializer()
-    speaker_positions_real = spatializer.speaker_positions
+    # Get speaker positions for visualization (use the SAME spatializer instance)
+    spatializer = shared_spatializer
+    speaker_positions_real = shared_spatializer.speaker_positions
     speaker_positions_screen = _real_to_screen_coords(speaker_positions_real)
     
     # Initialize positions
@@ -95,25 +95,29 @@ def pygame_thread():
                 elif event.button == 3:  # Right click - control ears position
                     ears_x, ears_y = mouse_x, mouse_y
         
-        # Convert current positions to real coordinates for display
+        # Convert current positions to real coordinates and update shared spatializer
         current_sound_pos = _screen_to_real_coords(sound_x, sound_y)
         current_ears_pos = _screen_to_real_coords(ears_x, ears_y)
+        spatializer.set_ears_position(current_ears_pos.astype(float))
         
         # Draw everything
         screen.fill(BLACK)
         
         # Draw speakers with explicit selection and attenuation bars
         speaker_volumes = spatializer.get_speaker_volumes()
+        speaker_gains = spatializer.get_speaker_gains()
         active_indices = set(spatializer.get_active_speakers())
         for i, pos in enumerate(speaker_positions_screen):
-            volume = float(speaker_volumes[i])
+            volume = float(speaker_volumes[i]) 
 
             # Base speaker icon
             pygame.draw.circle(screen, BLUE, pos, SPEAKER_RADIUS)
             pygame.draw.circle(screen, WHITE, pos, max(3, int(SPEAKER_RADIUS * 0.3)))
 
+
             if i in active_indices:
-                # Highlight ring for selected speakers
+                # === HIGHLIGHT: Active speakers (ring + volume bar + numeric factor) ===
+                # Draw a yellow ring around the selected speakers to indicate they are plying
                 highlight_radius = SPEAKER_RADIUS + 8
                 pygame.draw.circle(screen, (255, 200, 0), pos, highlight_radius, width=3)
 
@@ -127,6 +131,14 @@ def pygame_thread():
                 pygame.draw.rect(screen, (60, 60, 60), (bar_x, bar_y_top, bar_width, 80))
                 # Filled portion
                 pygame.draw.rect(screen, (255, 80, 0), (bar_x, bar_y_bottom - bar_height, bar_width, bar_height))
+
+                # Write numeric factor under the speaker (raw gain with 3 decimals)
+                gain_value = float(speaker_gains[i])
+                label = f"{gain_value:.3f}"
+                font_small = pygame.font.Font(None, 24)
+                text_surface = font_small.render(label, True, (255, 220, 120))
+                text_rect = text_surface.get_rect(center=(pos[0], pos[1] + SPEAKER_RADIUS + 14))
+                screen.blit(text_surface, text_rect)
         
         # Draw connection line from ears to sound
         pygame.draw.line(screen, GRAY, (ears_x, ears_y), (sound_x, sound_y), 3)
@@ -228,8 +240,8 @@ if __name__ == "__main__":
     scene = Scene(spatializer)
     scene.register(sound_object)
     
-    # Start pygame thread
-    pygame_thread_handle = threading.Thread(target=pygame_thread, daemon=True)
+    # Start pygame thread, pass the same spatializer used by Scene
+    pygame_thread_handle = threading.Thread(target=pygame_thread, args=(spatializer,), daemon=True)
     pygame_thread_handle.start()
     
     print("Interactive ears+WAV positioning started!")
@@ -251,10 +263,10 @@ if __name__ == "__main__":
             sound_real_position = _screen_to_real_coords(sound_x, sound_y)
             ears_real_position = _screen_to_real_coords(ears_x, ears_y)
             
-            # Update sound object position (exactly like interactive_wav_position.py)
+            # Update sound object position
             sound_object.set_position(np.array([sound_real_position[0], sound_real_position[1]], dtype=float))
             
-            # Update ears position in spatializer
+            # Update ears position in spatializer (shared with pygame thread)
             spatializer.set_ears_position(np.array([ears_real_position[0], ears_real_position[1]], dtype=float))
             
             # Print position information (optional, like interactive_wav_position.py)

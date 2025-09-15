@@ -98,7 +98,8 @@ class EarsSpatializer:
         self.subwoofer_last_channel_auto_mode = subwoofer_last_channel_auto_mode
         self.attenuation_scaler = 1.0
         self.last_active_speakers = []  # Track which speakers are playing
-        self.last_speaker_volumes = np.zeros(len(self.speaker_positions))  # Track speaker volumes
+        self.last_speaker_volumes = np.zeros(len(self.speaker_positions))  # Track speaker volumes (normalized 0..1)
+        self.last_speaker_gains_raw = np.zeros(len(self.speaker_positions))  # Track raw attenuation factors
 
     def set_ears_position(self, ears_position):
         """Set the position of the ears in space"""
@@ -111,6 +112,10 @@ class EarsSpatializer:
     def get_speaker_volumes(self):
         """Get current volume levels for all speakers (0-1 range)"""
         return self.last_speaker_volumes.copy()
+
+    def get_speaker_gains(self):
+        """Get current raw attenuation factors per speaker (not normalized)."""
+        return self.last_speaker_gains_raw.copy()
 
     def process(self, sm: SoundMessage):
         """
@@ -139,7 +144,7 @@ class EarsSpatializer:
             # Normalize the direction vector
             d_direction = d_vector / d_norm
             
-            # Find speakers using longitudinal position of the sound along the ears->sound ray
+            # Find speakers using perpendicular distance only (forward ray)
             target_t = float(np.dot((sm.position - self.ears_position), d_direction))
             closest_speakers = self._find_speakers_in_direction(
                 self.ears_position, d_direction, self.speaker_positions, target_t=target_t
@@ -147,37 +152,45 @@ class EarsSpatializer:
             self.last_active_speakers = closest_speakers
 
             # Volume increases as sound approaches ears (stronger near, weaker far)
-            # Clipped for safety to [0.0, 1.0]
             base_volume = np.clip(1.0 / (1e-2 + 0.3 * d_norm), 0.05, 1.0)
 
-            # Build raw gains for the two selected speakers using alignment and proximity to the sound
-            raw_gains = []
+            # Compute perpendicular distances for the two speakers
+            perp_distances = []
             for speaker_idx in closest_speakers:
-                speaker_pos = self.speaker_positions[speaker_idx]
-                # Alignment of speaker direction with ears->sound
-                to_speaker_vec = speaker_pos - self.ears_position
-                to_speaker_norm = np.linalg.norm(to_speaker_vec) + 1e-9
-                to_speaker_dir = to_speaker_vec / to_speaker_norm
-                alignment = max(0.0, float(np.dot(d_direction, to_speaker_dir)))  # [0..1]
+                sp = self.speaker_positions[speaker_idx]
+                v = sp - self.ears_position
+                t = float(np.dot(v, d_direction))
+                proj_point = self.ears_position + t * d_direction
+                d_perp = float(np.linalg.norm(sp - proj_point))
+                perp_distances.append(d_perp)
 
-                # Proximity of speaker to the sound source
-                distance_to_speaker_from_sound = np.linalg.norm(speaker_pos - sm.position)
-                proximity = 1.0 / (1e-3 + distance_to_speaker_from_sound)  # larger when closer
+            # Convert perpendicular distances to mixing weights
+            eps = 1e-6
+            if perp_distances[0] <= 1e-3 and (len(perp_distances) == 1 or perp_distances[0] < perp_distances[1] - 1e-6):
+                weights = [1.0, 0.0]
+            elif len(perp_distances) > 1 and perp_distances[1] <= 1e-3 and perp_distances[1] < perp_distances[0] - 1e-6:
+                weights = [0.0, 1.0]
+            else:
+                # Inverse-distance weighting on perpendiculars
+                inv = [1.0 / max(d, eps) for d in perp_distances]
+                s = inv[0] + (inv[1] if len(inv) > 1 else 0.0)
+                if s <= 0:
+                    weights = [0.5, 0.5]
+                else:
+                    w0 = inv[0] / s
+                    w1 = (inv[1] / s) if len(inv) > 1 else 0.0
+                    weights = [w0, w1]
 
-                # Combine (weight alignment a bit stronger)
-                raw_gain = (alignment ** 1.5) * proximity
-                raw_gains.append(raw_gain)
-
-            raw_gains = np.array(raw_gains, dtype=float)
-            sum_raw = float(np.sum(raw_gains)) + 1e-9
-
-            # Normalize such that the total output power roughly follows base_volume
-            norm_factor = base_volume / sum_raw
+            # Apply distance attenuation from sound to each speaker and scale by base volume and weights
             for i, speaker_idx in enumerate(closest_speakers):
-                attenuation[speaker_idx] = raw_gains[i] * norm_factor
+                sp = self.speaker_positions[speaker_idx]
+                distance_to_speaker_from_sound = np.linalg.norm(sp - sm.position)
+                speaker_attenuation = 1.0 / (1.0 + self.attenuation_scaler * distance_to_speaker_from_sound)
+                attenuation[speaker_idx] = weights[i] * base_volume * speaker_attenuation
         
-        # Store current speaker volumes for visualization (normalize to 0..1 by max for clarity)
-        vis = attenuation.copy()
+        # Store raw gains and normalized volumes for visualization
+        self.last_speaker_gains_raw = attenuation.copy()
+        vis = self.last_speaker_gains_raw.copy()
         max_val = float(np.max(vis)) if vis.size > 0 else 0.0
         if max_val > 0:
             vis = vis / max_val
@@ -192,38 +205,42 @@ class EarsSpatializer:
     
     def _find_speakers_in_direction(self, ears_pos, direction, speaker_positions, target_t=None):
         """
-        Choose the two speakers nearest to the ray from ears in the forward direction,
-        centered around the sound's longitudinal position along that ray.
+        Choose the two speakers with the smallest perpendicular distance to the
+        ears→sound line (ray) in the forward direction. Projection length (t)
+        is only used to discard speakers behind the ears; ranking is purely by
+        perpendicular distance to the line.
 
         Args:
             ears_pos: (2,) ears position
             direction: (2,) unit vector from ears to sound
             speaker_positions: (N,2) array
-            target_t: float, longitudinal position along the ray (ears + t*dir) of the sound; if None, uses 0
+            target_t: unused (kept for signature compatibility)
 
         Returns:
             List[int]: indices of two best speakers
         """
-        if target_t is None:
-            target_t = 0.0
-
         candidates = []
         for i, sp in enumerate(speaker_positions):
             v = sp - ears_pos
             t = float(np.dot(v, direction))
             if t < 0:
                 continue  # behind ears, ignore
-            # perpendicular distance to ray
             proj_point = ears_pos + t * direction
             d_perp = float(np.linalg.norm(sp - proj_point))
-            # cost combines distance along-ray difference and perpendicular distance
-            cost = abs(t - target_t) + 0.4 * d_perp
-            candidates.append((i, cost))
+            candidates.append((i, d_perp))
 
         if not candidates:
-            # fallback: closest two to ears
-            dists = np.linalg.norm(speaker_positions - ears_pos, axis=1)
-            return np.argsort(dists)[:2].tolist()
+            # Fallback: if everything is behind (rare), use global perpendicular distance w.r.t. infinite line
+            # Compute to entire line without the t>=0 constraint
+            all_perp = []
+            for i, sp in enumerate(speaker_positions):
+                v = sp - ears_pos
+                t_any = float(np.dot(v, direction))
+                proj_point = ears_pos + t_any * direction
+                d_perp_any = float(np.linalg.norm(sp - proj_point))
+                all_perp.append((i, d_perp_any))
+            all_perp.sort(key=lambda x: x[1])
+            return [all_perp[0][0], all_perp[1][0] if len(all_perp) > 1 else all_perp[0][0]]
 
         candidates.sort(key=lambda x: x[1])
         return [candidates[0][0], candidates[1][0] if len(candidates) > 1 else candidates[0][0]]

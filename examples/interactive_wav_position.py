@@ -89,7 +89,7 @@ def pygame_thread():
         # Convert current mouse position to real coordinates for display
         current_real_pos = _screen_to_real_coords(mouse_x, mouse_y)
         
-        # Draw everything
+        # Draw everyng
         screen.fill(BLACK)
         
         # Draw speakers
