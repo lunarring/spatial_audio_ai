@@ -127,9 +127,7 @@ def pygame_thread(shared_spatializer):
                 bar_x = pos[0] - bar_width // 2
                 bar_y_top = pos[1] - SPEAKER_RADIUS - 10 - bar_height
                 bar_y_bottom = pos[1] - SPEAKER_RADIUS - 10
-                # Background bar track
-                pygame.draw.rect(screen, (60, 60, 60), (bar_x, bar_y_top, bar_width, 80))
-                # Filled portion
+                # Filled portion (no background track)
                 pygame.draw.rect(screen, (255, 80, 0), (bar_x, bar_y_bottom - bar_height, bar_width, bar_height))
 
                 # Write numeric factor under the speaker (raw gain with 3 decimals)
